@@ -1,31 +1,33 @@
+English | [Tiếng Việt](README.vi.md)
+
 # Mongo Studio
 
-Extension cho OpenChamber: kết nối MongoDB, duyệt collection, xem và sửa document, và chạy truy vấn kiểu mongo shell (tương tự NoSQLBooster).
+An OpenChamber extension for connecting to MongoDB, browsing collections, viewing and editing documents, and running mongo-shell style queries (similar to NoSQLBooster).
 
-## Cấu trúc
+## Structure
 
-| Đường dẫn | Vai trò |
+| Path | Role |
 |---|---|
-| `panel/` | Giao diện (iframe sandbox): cây Connection → Database → Collection, tab Collection, tab Query |
-| `service/` | Service Node chạy trên máy: giữ MongoDB client, lưu connection, chạy truy vấn |
-| `shared/query-parser.ts` | Parser cú pháp mongo shell, dùng chung cho panel (kiểm tra) và service (chạy). Không dùng eval |
-| `shared/api.ts` | Kiểu dữ liệu của hợp đồng panel ↔ service |
+| `panel/` | UI (sandboxed iframe): Connection → Database → Collection tree, Collection tab, Query tab |
+| `service/` | Node service running on the local machine: holds the MongoDB client, stores connections, runs queries |
+| `shared/query-parser.ts` | Mongo-shell syntax parser, shared by the panel (validation) and the service (execution). Does not use `eval` |
+| `shared/api.ts` | Data types for the panel ↔ service contract |
 
-## Cài đặt cho người dùng
+## Installing for Users
 
-Cách 1: mở Settings → Extensions, thêm bằng URL:
+Option 1: open Settings → Extensions and add the extension by URL:
 
 ```
 https://github.com/dungwoan/openchamber-mongo-studio
 ```
 
-Cách 2: bấm nút sau (mở ứng dụng OpenChamber desktop, sẽ hỏi xác nhận trước khi tải):
+Option 2: click the button below (opens the OpenChamber desktop app, which asks for confirmation before downloading):
 
-[Cài đặt Mongo Studio](openchamber://extensions/install?url=https%3A%2F%2Fgithub.com%2Fdungwoan%2Fopenchamber-mongo-studio)
+[Install Mongo Studio](openchamber://extensions/install?url=https%3A%2F%2Fgithub.com%2Fdungwoan%2Fopenchamber-mongo-studio)
 
-> Lưu ý: mật khẩu của connection được lưu dạng **văn bản thuần** trong `~/.openchamber-mongo-studio/connections.json` (quyền `0600`). Ai đăng nhập được vào tài khoản hệ điều hành này đều đọc được. Xem mục Bảo mật bên dưới.
+> Note: connection passwords are stored as **plain text** in `~/.openchamber-mongo-studio/connections.json` (mode `0600`). Anyone who can log in to this OS account can read them. See the Security section below.
 
-## Cài đặt và kiểm tra
+## Setup and Checks
 
 ```bash
 bun install
@@ -35,19 +37,19 @@ bunx openchamber-guest-check
 bun test shared/
 ```
 
-Sau đó thêm thư mục này trong Settings → Extensions.
+Then add this folder in Settings → Extensions.
 
-## Bảo mật
+## Security
 
-- URI (kèm mật khẩu) được lưu trong `~/.openchamber-mongo-studio/connections.json`, quyền `0600`, thư mục `0700`. Đây là văn bản thuần: ai đọc được file này (cùng tài khoản hệ điều hành) đều thấy mật khẩu.
-- Panel không bao giờ nhận URI đầy đủ. Danh sách connection chỉ có tên, host (đã bỏ thông tin đăng nhập) và trạng thái.
-- Service chỉ nghe trên `127.0.0.1` và yêu cầu bearer token trên mọi route, kể cả `/health`.
-- Connection Read-only chặn mọi thao tác ghi, kể cả `$out`/`$merge` trong aggregate.
+- The URI (including the password) is stored in `~/.openchamber-mongo-studio/connections.json`, mode `0600`, inside a directory with mode `0700`. It is plain text: anyone who can read this file (same OS account) can see the passwords.
+- The panel never receives the full URI. The connection list only contains the name, the host (credentials removed) and the status.
+- The service listens only on `127.0.0.1` and requires a bearer token on every route, including `/health`.
+- Connections marked Read-only block all write operations, including `$out`/`$merge` in aggregate.
 
-## Cú pháp truy vấn
+## Query Syntax
 
-`db.<collection>.find(filter, projection).sort(...).skip(n).limit(n)`, `findOne`, `count`/`countDocuments`, `distinct`, `aggregate([...], {allowDiskUse, maxTimeMS})`, `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`, `deleteMany`, `db.getCollectionNames()`, `db.stats()`, và `db.getCollection("tên")`.
+`db.<collection>.find(filter, projection).sort(...).skip(n).limit(n)`, `findOne`, `count`/`countDocuments`, `distinct`, `aggregate([...], {allowDiskUse, maxTimeMS})`, `insertOne`, `insertMany`, `updateOne`, `updateMany`, `deleteOne`, `deleteMany`, `db.getCollectionNames()`, `db.stats()`, and `db.getCollection("name")`.
 
-Đối số là JS literal nới lỏng: key không nháy, nháy đơn/đôi, dấu phẩy thừa, comment, regex `/abc/i`, và `ObjectId`, `ISODate`, `new Date`, `NumberLong`, `NumberInt`, `NumberDecimal`, `UUID`. Hàm khác bị từ chối kèm vị trí dòng và cột.
+Arguments are relaxed JS literals: unquoted keys, single or double quotes, trailing commas, comments, regex `/abc/i`, and `ObjectId`, `ISODate`, `new Date`, `NumberLong`, `NumberInt`, `NumberDecimal`, `UUID`. Any other function is rejected with the line and column position.
 
-Ctrl/⌘ + Enter chạy lệnh tại con trỏ. Find và aggregate trả tối đa 500 dòng.
+Ctrl/⌘ + Enter runs the command at the cursor. Find and aggregate return at most 500 rows.
