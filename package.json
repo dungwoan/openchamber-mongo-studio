@@ -1,0 +1,35 @@
+{
+  "name": "mongo-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Mongo Studio for OpenChamber: connect to MongoDB, browse collections and run mongo-shell style queries.",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.7.0"
+    },
+    "id": "mongo-studio",
+    "name": "Mongo Studio",
+    "icon": "database-2",
+    "contributes": {
+      "panel": {
+        "entry": "panel/index.html"
+      },
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host"
+      },
+      "mentions": {
+        "label": "Collections"
+      }
+    }
+  },
+  "dependencies": {
+    "@openchamber/sdk": "2.7.0",
+    "mongodb": "^7.8.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
