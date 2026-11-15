@@ -191,3 +191,7 @@ export type DiagramGetResponse = {
 };
 
 export type DiagramAgentResponse = { report: SchemaReport | null; warnings: string[] };
+
+/** Vị trí các thẻ sơ đồ theo tên collection (layout.json). */
+export type DiagramLayoutGetResponse = { positions: Record<string, { x: number; y: number }> };
+export type DiagramLayoutSaveResponse = { written: string };

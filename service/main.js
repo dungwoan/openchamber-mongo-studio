@@ -31440,7 +31440,8 @@ async function historyAddRoute(body) {
 }
 
 // service/handlers/diagram.ts
-import { lstat, mkdir as mkdir2, readFile as readFile4, realpath as realpath2, rename as rename2, writeFile as writeFile2 } from "node:fs/promises";
+import { randomUUID as randomUUID3 } from "node:crypto";
+import { lstat, mkdir as mkdir2, readFile as readFile4, realpath as realpath2, rename as rename2, unlink, writeFile as writeFile2 } from "node:fs/promises";
 import path5 from "node:path";
 
 // service/schema-report.ts
@@ -32313,7 +32314,7 @@ async function reportFolder(dir, create) {
     } catch {
       if (!create)
         return null;
-      await mkdir2(current, { mode: 493 });
+      await mkdir2(current, { mode: 448 });
       info = await lstat(current);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -32329,10 +32330,35 @@ async function writeReport(dir, fileName, text) {
   if (existing?.isSymbolicLink()) {
     throw new HttpError(400, "UNSAFE_PATH", `${fileName} là symlink, không ghi đè.`);
   }
-  const temp = `${target}.${process.pid}.tmp`;
-  await writeFile2(temp, text, { mode: 420 });
-  await rename2(temp, target);
+  const temp = `${target}.${process.pid}.${randomUUID3()}.tmp`;
+  try {
+    await writeFile2(temp, text, { mode: 420 });
+    await rename2(temp, target);
+  } catch (error) {
+    await unlink(temp).catch(() => {
+      return;
+    });
+    throw error;
+  }
   return [...REPORT_DIR, fileName].join("/");
+}
+async function readProjectFile(dir, fileName, maxBytes) {
+  const folder = await reportFolder(dir, false);
+  if (folder === null)
+    return null;
+  const file = path5.join(folder, fileName);
+  const info = await lstat(file).catch(() => null);
+  if (info === null)
+    return null;
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new HttpError(400, "UNSAFE_PATH", `Không đọc được ${fileName}: đây là symlink hoặc không phải file thường.`);
+  }
+  if (info.size > maxBytes)
+    throw new HttpError(413, "TOO_LARGE", `${fileName} quá lớn để đọc.`);
+  const real = await realpath2(file);
+  if (!isInside(dir.real, real))
+    throw new HttpError(400, "UNSAFE_PATH", `${fileName} nằm ngoài dự án.`);
+  return readFile4(real, "utf8");
 }
 async function readAgentReport(dir) {
   try {
@@ -32394,6 +32420,67 @@ async function agentReportRoute(body) {
   return readAgentReport(dir);
 }
 
+// service/layout.ts
+var LAYOUT_FILE = "layout.json";
+var MAX_LAYOUT_ENTRIES = 500;
+var MAX_LAYOUT_BYTES = 256 * 1024;
+var CONTROL2 = /[\u0000-\u001f\u007f]/;
+var FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+var isObj3 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+function isLayoutKey(key) {
+  return key.length >= 1 && key.length <= 128 && !CONTROL2.test(key) && !FORBIDDEN_KEYS.has(key);
+}
+function validateLayout(input) {
+  if (Buffer.byteLength(JSON.stringify(input ?? null)) > MAX_LAYOUT_BYTES) {
+    return { error: "Vị trí sơ đồ quá lớn (trên 256 KB), không lưu." };
+  }
+  if (!isObj3(input) || !isObj3(input.positions)) {
+    return { error: 'Vị trí sơ đồ phải là đối tượng có khoá "positions".' };
+  }
+  const entries = Object.entries(input.positions);
+  if (entries.length > MAX_LAYOUT_ENTRIES) {
+    return { error: `Quá ${MAX_LAYOUT_ENTRIES} vị trí; chỉ lưu tối đa ${MAX_LAYOUT_ENTRIES} bảng.` };
+  }
+  const positions = {};
+  for (const [key, value] of entries) {
+    if (!isLayoutKey(key))
+      return { error: "Tên bảng trong vị trí không hợp lệ (rỗng, quá dài, có ký tự điều khiển hoặc khoá đặc biệt)." };
+    if (!isObj3(value) || typeof value.x !== "number" || typeof value.y !== "number" || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+      return { error: `Vị trí của "${key}" phải có x và y là số hữu hạn.` };
+    }
+    positions[key] = { x: value.x, y: value.y };
+  }
+  if (Buffer.byteLength(JSON.stringify({ version: 1, positions })) > MAX_LAYOUT_BYTES) {
+    return { error: "Vị trí sơ đồ quá lớn (trên 256 KB), không lưu." };
+  }
+  return { positions };
+}
+
+// service/handlers/layout.ts
+async function layoutGetRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const text = await readProjectFile(dir, LAYOUT_FILE, MAX_LAYOUT_BYTES);
+  if (text === null)
+    return { positions: {} };
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { positions: {} };
+  }
+  const checked = validateLayout(parsed);
+  return { positions: "positions" in checked ? checked.positions : {} };
+}
+async function layoutSaveRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const checked = validateLayout({ positions: body.positions });
+  if ("error" in checked)
+    throw new HttpError(400, "BAD_LAYOUT", checked.error);
+  const written = await writeReport(dir, LAYOUT_FILE, `${JSON.stringify({ version: 1, positions: checked.positions }, null, 2)}
+`);
+  return { written };
+}
+
 // service/routes.ts
 var ROUTES = {
   "/connections/list": listRoute,
@@ -32403,6 +32490,8 @@ var ROUTES = {
   "/diagram/scan": scanRoute,
   "/diagram/get": getRoute,
   "/diagram/agent-report": agentReportRoute,
+  "/diagram/layout/get": layoutGetRoute,
+  "/diagram/layout/save": layoutSaveRoute,
   "/connections/save": saveRoute,
   "/connections/delete": deleteRoute,
   "/connections/disconnect": disconnectRoute2,

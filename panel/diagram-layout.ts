@@ -203,3 +203,57 @@ export function applyOverrides(positions: Map<string, Point>, overrides: Map<str
 export function filterRelations<T>(relations: T[], show: boolean): T[] {
   return show ? relations : [];
 }
+
+export type Size = { width: number; height: number };
+
+/** Hai thẻ "đè" nhau nếu khoảng cách giữa hai khung nhỏ hơn gap (hai chiều). */
+function tooClose(a: Box, b: Box, gap: number): boolean {
+  return a.x < b.x + b.width + gap && b.x < a.x + a.width + gap
+    && a.y < b.y + b.height + gap && b.y < a.y + a.height + gap;
+}
+
+/**
+ * Vị trí hợp lệ cho thẻ vừa thả: giữ nguyên nếu không đè thẻ nào; ngược lại chọn vị trí trống
+ * gần nhất với vị trí thả, cách mọi thẻ khác tối thiểu gap px. Thẻ id không tự xét với chính nó.
+ * Vị trí ứng viên: cạnh phải và cạnh dưới của từng thẻ khác, cộng hai vị trí "ngoài cùng" luôn trống.
+ *
+ * Args:
+ *   id: Thẻ vừa được thả.
+ *   positions: Vị trí hiện tại của mọi thẻ (đã gồm vị trí thả của id).
+ *   sizes: Kích thước của mọi thẻ.
+ *   gap: Khoảng cách tối thiểu giữa hai thẻ.
+ */
+export function resolveDrop(id: string, positions: Map<string, Point>, sizes: Map<string, Size>, gap = 16): Point {
+  const self = positions.get(id);
+  const size = sizes.get(id);
+  if (!self || !size) return self ?? { x: 0, y: 0 };
+  const boxAt = (p: Point, s: Size): Box => ({ x: p.x, y: p.y, width: s.width, height: s.height });
+  const others: Box[] = [];
+  for (const [other, point] of positions) {
+    const s = sizes.get(other);
+    if (other !== id && s) others.push(boxAt(point, s));
+  }
+  const free = (p: Point): boolean => others.every((o) => !tooClose(boxAt(p, size), o, gap));
+  if (free(self)) return self;
+  const candidates: Point[] = [];
+  for (const o of others) {
+    candidates.push({ x: o.x + o.width + gap, y: self.y });
+    candidates.push({ x: self.x, y: o.y + o.height + gap });
+    candidates.push({ x: o.x + o.width + gap, y: o.y });
+    candidates.push({ x: o.x, y: o.y + o.height + gap });
+  }
+  const right = Math.max(0, ...others.map((o) => o.x + o.width)) + gap;
+  const bottom = Math.max(0, ...others.map((o) => o.y + o.height)) + gap;
+  candidates.push({ x: right, y: self.y }, { x: self.x, y: bottom }, { x: right, y: 0 });
+  let best: Point = { x: self.x, y: bottom };
+  let bestDistance = Infinity;
+  for (const candidate of candidates) {
+    if (!free(candidate)) continue;
+    const distance = (candidate.x - self.x) ** 2 + (candidate.y - self.y) ** 2;
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

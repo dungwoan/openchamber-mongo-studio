@@ -4,7 +4,8 @@
  * - schema-report.json: do agent ghi theo yêu cầu; service chỉ đọc và kiểm tra bằng validateReport.
  * Không bao giờ ghi .gitignore của dự án: chỉ gợi ý.
  */
-import { lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { DiagramAgentResponse, DiagramGetResponse, DiagramScanResponse, SchemaReport } from '../../shared/api.ts';
@@ -41,7 +42,7 @@ async function scanStatic(dir: ProjectDir): Promise<SchemaReport> {
  * Raises:
  *   HttpError 400 khi một thành phần là symlink hoặc không phải thư mục.
  */
-async function reportFolder(dir: ProjectDir, create: boolean): Promise<string | null> {
+export async function reportFolder(dir: ProjectDir, create: boolean): Promise<string | null> {
   let current = dir.real;
   for (const part of REPORT_DIR) {
     current = path.join(current, part);
@@ -50,7 +51,7 @@ async function reportFolder(dir: ProjectDir, create: boolean): Promise<string | 
       info = await lstat(current);
     } catch {
       if (!create) return null;
-      await mkdir(current, { mode: 0o755 });
+      await mkdir(current, { mode: 0o700 });
       info = await lstat(current);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
@@ -60,18 +61,50 @@ async function reportFolder(dir: ProjectDir, create: boolean): Promise<string | 
   return current;
 }
 
-/** Ghi file báo cáo vào .openchamber/mongo-studio (ghi tạm rồi đổi tên). Trả về đường dẫn tương đối. */
-async function writeReport(dir: ProjectDir, fileName: string, text: string): Promise<string> {
+/**
+ * Ghi file vào .openchamber/mongo-studio: ghi file tạm (quyền 0644) rồi đổi tên; lỗi thì xoá file tạm.
+ * Trả về đường dẫn tương đối của file đích.
+ */
+export async function writeReport(dir: ProjectDir, fileName: string, text: string): Promise<string> {
   const folder = await reportFolder(dir, true) as string;
   const target = path.join(folder, fileName);
   const existing = await lstat(target).catch(() => null);
   if (existing?.isSymbolicLink()) {
     throw new HttpError(400, 'UNSAFE_PATH', `${fileName} là symlink, không ghi đè.`);
   }
-  const temp = `${target}.${process.pid}.tmp`;
-  await writeFile(temp, text, { mode: 0o644 });
-  await rename(temp, target);
+  const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temp, text, { mode: 0o644 });
+    await rename(temp, target);
+  } catch (error) {
+    await unlink(temp).catch(() => undefined);
+    throw error;
+  }
   return [...REPORT_DIR, fileName].join('/');
+}
+
+/**
+ * Đọc một file trong .openchamber/mongo-studio của dự án. Symlink, file ngoài dự án hay file quá lớn bị từ chối.
+ *
+ * Returns:
+ *   Nội dung, hoặc null nếu file hoặc thư mục chưa có.
+ *
+ * Raises:
+ *   HttpError 400 UNSAFE_PATH khi thư mục/file là symlink hoặc nằm ngoài dự án; 413 khi quá lớn.
+ */
+export async function readProjectFile(dir: ProjectDir, fileName: string, maxBytes: number): Promise<string | null> {
+  const folder = await reportFolder(dir, false);
+  if (folder === null) return null;
+  const file = path.join(folder, fileName);
+  const info = await lstat(file).catch(() => null);
+  if (info === null) return null;
+  if (info.isSymbolicLink() || !info.isFile()) {
+    throw new HttpError(400, 'UNSAFE_PATH', `Không đọc được ${fileName}: đây là symlink hoặc không phải file thường.`);
+  }
+  if (info.size > maxBytes) throw new HttpError(413, 'TOO_LARGE', `${fileName} quá lớn để đọc.`);
+  const real = await realpath(file);
+  if (!isInside(dir.real, real)) throw new HttpError(400, 'UNSAFE_PATH', `${fileName} nằm ngoài dự án.`);
+  return readFile(real, 'utf8');
 }
 
 /** Đọc và kiểm tra báo cáo của agent; mọi lỗi chỉ thành cảnh báo, không làm hỏng sơ đồ. */

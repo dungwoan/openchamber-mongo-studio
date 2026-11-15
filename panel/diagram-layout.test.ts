@@ -135,3 +135,74 @@ describe('filterRelations (Hiển thị quan hệ bật/tắt)', () => {
     expect(filterRelations(list, true)).toHaveLength(2);
   });
 });
+
+import { resolveDrop } from './diagram-layout.ts';
+
+const sized = (ids: Array<[string, number, number, number, number]>) => ({
+  positions: new Map(ids.map(([id, x, y]) => [id, { x, y }] as const)),
+  sizes: new Map(ids.map(([id, , , w, h]) => [id, { width: w, height: h }] as const)),
+});
+const conflictsAny = (positions: Map<string, { x: number; y: number }>, sizes: Map<string, { width: number; height: number }>, id: string, gap = 16): boolean => {
+  const p = positions.get(id)!;
+  const s = sizes.get(id)!;
+  return [...positions].some(([other, q]) => {
+    if (other === id) return false;
+    const t = sizes.get(other)!;
+    return p.x < q.x + t.width + gap && q.x < p.x + s.width + gap && p.y < q.y + t.height + gap && q.y < p.y + s.height + gap;
+  });
+};
+
+describe('resolveDrop (thả thẻ không đè thẻ khác)', () => {
+  test('không đè ai thì giữ nguyên vị trí', () => {
+    const { positions, sizes } = sized([['a', 0, 0, 100, 50], ['b', 400, 0, 100, 50]]);
+    expect(resolveDrop('a', positions, sizes)).toEqual({ x: 0, y: 0 });
+  });
+
+  test('cách đúng 16 px vẫn được coi là không đè', () => {
+    const { positions, sizes } = sized([['a', 0, 0, 100, 50], ['b', 116, 0, 100, 50]]);
+    expect(resolveDrop('a', positions, sizes)).toEqual({ x: 0, y: 0 });
+  });
+
+  test('đè lên thẻ khác thì dời sang vị trí trống gần nhất, không đè và cách tối thiểu 16 px', () => {
+    const { positions, sizes } = sized([['a', 0, 0, 100, 50], ['b', 300, 300, 100, 50]]);
+    positions.set('a', { x: 310, y: 310 });
+    const moved = resolveDrop('a', positions, sizes);
+    expect(moved).not.toEqual({ x: 310, y: 310 });
+    positions.set('a', moved);
+    expect(conflictsAny(positions, sizes, 'a')).toBe(false);
+  });
+
+  test('vị trí mới là vị trí trống gần nhất (không xa hơn cần thiết)', () => {
+    const { positions, sizes } = sized([['a', 0, 0, 100, 50], ['b', 200, 0, 100, 50]]);
+    positions.set('a', { x: 205, y: 0 });
+    const moved = resolveDrop('a', positions, sizes);
+    // Ngay dưới b (y = 50 + 16 = 66), giữ x của điểm thả: cách điểm thả 66 px, gần hơn mọi vị trí khác (kể cả bên phải, 316, 0).
+    expect(moved).toEqual({ x: 205, y: 66 });
+    positions.set('a', moved);
+    expect(conflictsAny(positions, sizes, 'a')).toBe(false);
+  });
+
+  test('nhiều thẻ thả liên tiếp đè nhau: sau mỗi lần thả không còn chồng', () => {
+    const ids: Array<[string, number, number, number, number]> = Array.from({ length: 8 }, (_, i) => [`t${i}`, i * 300, 0, 240, 120]);
+    const { positions, sizes } = sized(ids);
+    for (let i = 1; i < 8; i += 1) {
+      positions.set(`t${i}`, { x: 40, y: 20 }); // mọi thẻ được kéo về cùng một chỗ
+      positions.set(`t${i}`, resolveDrop(`t${i}`, positions, sizes));
+      expect(conflictsAny(positions, sizes, `t${i}`)).toBe(false);
+    }
+  });
+
+  test('bảng lớn: 80 thẻ, thả một thẻ vào giữa lưới thì không đè thẻ nào', () => {
+    const ids: Array<[string, number, number, number, number]> = [];
+    for (let i = 0; i < 80; i += 1) ids.push([`b${i}`, (i % 10) * 260, Math.floor(i / 10) * 200, 240, 170]);
+    const { positions, sizes } = sized(ids);
+    positions.set('b44', { x: 520, y: 400 });
+    positions.set('b44', resolveDrop('b44', positions, sizes));
+    expect(conflictsAny(positions, sizes, 'b44')).toBe(false);
+  });
+
+  test('thẻ không có kích thước hoặc không có vị trí thì trả về vị trí hiện có, không lỗi', () => {
+    const { positions, sizes } = sized([['a', 5, 5, 100, 50]]);
+    expect(resolveDrop('zzz', positions, sizes)).toEqual({ x: 0, y: 0 });
+  });
+});

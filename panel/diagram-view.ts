@@ -5,7 +5,15 @@
  */
 import { mountBanner, mountButton, mountEmpty, mountSearchField, mountSelect, mountSwitch } from '@openchamber/sdk/ui';
 
-import type { DiagramGetResponse, DiagramScanResponse, SchemaCollection, SchemaReport, SchemaRelation } from '../shared/api.ts';
+import type {
+  DiagramGetResponse,
+  DiagramLayoutGetResponse,
+  DiagramLayoutSaveResponse,
+  DiagramScanResponse,
+  SchemaCollection,
+  SchemaReport,
+  SchemaRelation,
+} from '../shared/api.ts';
 import {
   applyOverrides,
   edgeGeometry,
@@ -13,6 +21,7 @@ import {
   groupShards,
   layout,
   neighborhood,
+  resolveDrop,
   searchNames,
   type Edge,
   type Point,
@@ -30,6 +39,8 @@ const MAX_FIELDS = 12;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ARROW_DECLARED = 'ms-dg-arrow-declared';
 const ARROW_INFERRED = 'ms-dg-arrow-inferred';
+/** Thời gian chờ sau khi thả thẻ trước khi ghi layout.json (gom nhiều lần kéo). */
+const SAVE_DELAY_MS = 400;
 
 type Handle = { dispose(): void };
 type Card = { id: string; label: string; width: number; height: number; fields: SchemaCollection['fields']; more: number; inferred: boolean };
@@ -122,6 +133,10 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   /** Vị trí thẻ đã kéo trong phiên; "Sắp xếp lại" xoá. */
   const manual = new Map<string, Point>();
   let scene: Scene | null = null;
+  let layoutLoaded = false;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Khoá (tên collection hoặc nhóm shard) của lần vẽ gần nhất; dùng để bỏ vị trí của bảng không còn tồn tại. */
+  let knownKeys: Set<string> | null = null;
 
   const toolbarSlot = (parent: HTMLElement): HTMLDivElement => {
     const node = slot('ms-slot ms-slot-inline');
@@ -179,7 +194,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     label: 'Sắp xếp lại',
     variant: 'ghost',
     size: 'sm',
-    onClick: () => { manual.clear(); render(); },
+    onClick: () => { manual.clear(); render(); void persist(); },
   });
   handles.push(scanButton, writeButton, relationSwitch, fullButton, agentButton, search, focus, hopsSelect, clear, arrange);
 
@@ -198,11 +213,29 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     bannerHandle = mountBanner(bannerSlot, { tone, title, body });
   }
 
+  /** Đọc layout.json lần đầu (sau đó bộ nhớ phiên là nguồn đúng). Lỗi chỉ thông báo, không chặn sơ đồ. */
+  async function loadLayout(): Promise<DiagramLayoutGetResponse | null> {
+    if (layoutLoaded) return null;
+    try {
+      return await ctx.api.call<DiagramLayoutGetResponse>('/diagram/layout/get', { directory });
+    } catch (error) {
+      if (!disposed) ctx.toast('error', `Không đọc được vị trí đã lưu: ${messageOf(error)}`);
+      return null;
+    }
+  }
+
   async function load(): Promise<void> {
     const seq = ++loadSeq;
     try {
-      const reply = await ctx.api.call<DiagramGetResponse>('/diagram/get', { directory });
+      const [reply, saved] = await Promise.all([
+        ctx.api.call<DiagramGetResponse>('/diagram/get', { directory }),
+        loadLayout(),
+      ]);
       if (disposed || seq !== loadSeq) return;
+      if (saved !== null) {
+        for (const [key, point] of Object.entries(saved.positions)) if (!manual.has(key)) manual.set(key, point);
+        layoutLoaded = true;
+      }
       report = reply.report;
       hasAgent = reply.hasAgentReport;
       bannerHandle?.dispose();
@@ -264,6 +297,36 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   }
 
   /** Khung nhìn 1:1 (kích thước thật của canvas) neo ở góc trên trái của sơ đồ; kéo hoặc cuộn để xem phần còn lại. */
+  /** Ghi vị trí đang có vào layout.json. Lỗi chỉ báo toast; vị trí trên màn hình vẫn giữ. */
+  async function persist(): Promise<void> {
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    const positions: Record<string, Point> = {};
+    for (const [key, point] of manual) {
+      if (knownKeys === null || knownKeys.has(key)) positions[key] = { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+    }
+    try {
+      await ctx.api.call<DiagramLayoutSaveResponse>('/diagram/layout/save', { directory, positions });
+    } catch (error) {
+      ctx.toast('error', `Không lưu được vị trí sơ đồ: ${messageOf(error)}`);
+    }
+  }
+
+  function scheduleSave(): void {
+    if (saveTimer !== null) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => void persist(), SAVE_DELAY_MS);
+  }
+
+  function placeNode(id: string, point: Point): void {
+    if (scene === null) return;
+    scene.positions.set(id, point);
+    manual.set(id, point);
+    scene.nodes.get(id)?.setAttribute('transform', `translate(${point.x} ${point.y})`);
+    updateEdges();
+  }
+
   function fitView(positions: Map<string, Point>, cards: Card[]): void {
     const minX = Math.min(...cards.map((card) => positions.get(card.id)?.x ?? 0));
     const minY = Math.min(...cards.map((card) => positions.get(card.id)?.y ?? 0));
@@ -354,14 +417,14 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     }
     header.addEventListener('pointerdown', (event: PointerEvent) => {
       event.stopPropagation();
-      drag = { id: card.id, startX: event.clientX, startY: event.clientY, origin: { ...(scene?.positions.get(card.id) ?? { x: at.x, y: at.y }) } };
+      drag = { id: card.id, startX: event.clientX, startY: event.clientY, origin: { ...(scene?.positions.get(card.id) ?? { x: at.x, y: at.y }) }, moved: false };
       svg.setPointerCapture(event.pointerId);
     });
     nodes.set(card.id, group);
     svg.appendChild(group);
   }
 
-  let drag: { id: string; startX: number; startY: number; origin: Point } | null = null;
+  let drag: { id: string; startX: number; startY: number; origin: Point; moved: boolean } | null = null;
   let pan: { x: number; y: number; vx: number; vy: number } | null = null;
 
   function attachInteractions(svg: SVGElement): void {
@@ -384,11 +447,8 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       if (drag !== null && scene !== null) {
         const dx = ((event.clientX - drag.startX) / rect.width) * view.w;
         const dy = ((event.clientY - drag.startY) / rect.height) * view.h;
-        const next = { x: drag.origin.x + dx, y: drag.origin.y + dy };
-        manual.set(drag.id, next);
-        scene.positions.set(drag.id, next);
-        scene.nodes.get(drag.id)?.setAttribute('transform', `translate(${next.x} ${next.y})`);
-        updateEdges();
+        if (dx !== 0 || dy !== 0) drag.moved = true;
+        placeNode(drag.id, { x: drag.origin.x + dx, y: drag.origin.y + dy });
         return;
       }
       if (pan === null) return;
@@ -400,6 +460,14 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       apply();
     });
     const release = (): void => {
+      if (drag !== null && drag.moved && scene !== null) {
+        // Chỉ khi thả: đẩy thẻ đè sang vị trí trống gần nhất, rồi lên lịch ghi layout.
+        const sizes = new Map([...scene.cards].map(([key, card]) => [key, { width: card.width, height: card.height }]));
+        const landed = resolveDrop(drag.id, scene.positions, sizes);
+        const current = scene.positions.get(drag.id);
+        if (current && (landed.x !== current.x || landed.y !== current.y)) placeNode(drag.id, landed);
+        scheduleSave();
+      }
       drag = null;
       pan = null;
     };
@@ -421,6 +489,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       .map((r) => ({ from: groupOf.get(r.from) ?? '', to: groupOf.get(r.to) ?? '' }))
       .filter((e) => e.from !== '' && e.to !== '' && e.from !== e.to);
     const groupIds = groups.map((g) => g.id);
+    knownKeys = new Set(groupIds);
     let visible: Set<string> | null;
     if (query.trim() !== '') {
       const names = new Set(searchNames([...byName.keys()], query));
@@ -499,6 +568,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   return {
     element: root,
     dispose() {
+      if (saveTimer !== null) void persist();
       disposed = true;
       for (const handle of [...handles, ...canvasHandles]) handle.dispose();
       canvasHandles.length = 0;
