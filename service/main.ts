@@ -18,7 +18,7 @@ const port = Number(process.env.OPENCHAMBER_SERVICE_PORT);
 const token = process.env.OPENCHAMBER_SERVICE_TOKEN ?? '';
 
 if (!Number.isInteger(port) || port <= 0 || token === '') {
-  console.error('mongo-studio: thiếu OPENCHAMBER_SERVICE_PORT hoặc OPENCHAMBER_SERVICE_TOKEN');
+  console.error('mongo-studio: missing OPENCHAMBER_SERVICE_PORT or OPENCHAMBER_SERVICE_TOKEN');
   process.exit(1);
 }
 
@@ -41,7 +41,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new HttpError(413, 'TOO_LARGE', 'Nội dung gửi lên quá lớn (tối đa 4 MB)'));
+        reject(new HttpError(413, 'TOO_LARGE', 'The request body is too large (at most 4 MB)'));
         req.destroy();
         return;
       }
@@ -58,26 +58,26 @@ function parseBody(text: string): Body {
   try {
     value = JSON.parse(text);
   } catch {
-    throw new HttpError(400, 'BAD_JSON', 'Nội dung gửi lên không phải JSON hợp lệ');
+    throw new HttpError(400, 'BAD_JSON', 'The request body is not valid JSON');
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new HttpError(400, 'BAD_JSON', 'Nội dung gửi lên phải là một đối tượng JSON');
+    throw new HttpError(400, 'BAD_JSON', 'The request body must be a JSON object');
   }
   return value as Body;
 }
 
 async function dispatch(req: http.IncomingMessage, res: http.ServerResponse, path: string): Promise<void> {
   if (path === '/health') {
-    send(res, req.method === 'GET' ? 200 : 405, req.method === 'GET' ? { ok: true, service: SERVICE_NAME } : { error: 'Dùng GET cho /health', code: 'METHOD' });
+    send(res, req.method === 'GET' ? 200 : 405, req.method === 'GET' ? { ok: true, service: SERVICE_NAME } : { error: 'Use GET for /health', code: 'METHOD' });
     return;
   }
   const handler = ROUTES[path];
   if (!handler) {
-    send(res, 404, { error: `Không có route ${path}`, code: 'NOT_FOUND' });
+    send(res, 404, { error: `No route ${path}`, code: 'NOT_FOUND' });
     return;
   }
   if (req.method !== 'POST') {
-    send(res, 405, { error: 'Route này chỉ nhận POST với body JSON', code: 'METHOD' });
+    send(res, 405, { error: 'This route only accepts POST with a JSON body', code: 'METHOD' });
     return;
   }
   const result = await handler(parseBody(await readBody(req)));
@@ -86,7 +86,7 @@ async function dispatch(req: http.IncomingMessage, res: http.ServerResponse, pat
 
 async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   if (!authorized(req.headers.authorization)) {
-    send(res, 401, { error: 'Thiếu hoặc sai token', code: 'UNAUTHORIZED' });
+    send(res, 401, { error: 'Missing or invalid token', code: 'UNAUTHORIZED' });
     return;
   }
   const path = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
@@ -94,7 +94,7 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     await dispatch(req, res, path);
   } catch (error) {
     const mapped = toHttpError(error);
-    if (mapped.status === 500) console.error(`mongo-studio: lỗi ở ${path} (${error instanceof Error ? error.name : 'unknown'})`);
+    if (mapped.status === 500) console.error(`mongo-studio: error at ${path} (${error instanceof Error ? error.name : 'unknown'})`);
     send(res, mapped.status, mapped.toBody());
   }
 }

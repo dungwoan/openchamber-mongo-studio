@@ -11,11 +11,11 @@ import { openDialog } from './dialogs.ts';
 
 /** Hướng xử lý theo mã lỗi kết nối, để người dùng biết cần kiểm tra gì. */
 const HINTS: Record<string, string> = {
-  UNREACHABLE: 'Kiểm tra host, port, tường lửa (firewall) và MongoDB có đang chạy không.',
-  NETWORK: 'Kiểm tra mạng hoặc VPN tới máy chủ MongoDB.',
-  AUTH_FAILED: 'Kiểm tra user, password và authSource trong URI.',
-  INVALID_URI: 'Kiểm tra lại định dạng URI: mongodb://user:pass@host:27017/?authSource=admin.',
-  UNAUTHORIZED: 'Kiểm tra quyền (role) của user trong MongoDB.',
+  UNREACHABLE: 'Check the host, port and firewall, and that MongoDB is running.',
+  NETWORK: 'Check the network or VPN connection to the MongoDB server.',
+  AUTH_FAILED: 'Check the user, password and authSource in the URI.',
+  INVALID_URI: 'Check the URI format: mongodb://user:pass@host:27017/?authSource=admin.',
+  UNAUTHORIZED: 'Check the user\'s roles in MongoDB.',
 };
 
 type FormState = { name: string; uri: string; readOnly: boolean };
@@ -53,7 +53,7 @@ export function openConnectionDialog(ctx: Ctx, existing: ConnectionView | null, 
   mountTextField(nameSlot, {
     label: 'Name',
     value: state.name,
-    placeholder: 'Ví dụ: Production CRM',
+    placeholder: 'For example: Production CRM',
     onChange: (value) => { state.name = value; },
   });
   mountTextField(uriSlot, {
@@ -61,15 +61,15 @@ export function openConnectionDialog(ctx: Ctx, existing: ConnectionView | null, 
     value: '',
     password: true,
     mono: true,
-    placeholder: existing ? 'Để trống để giữ URI đã lưu' : 'mongodb://user:password@host:27017/?authSource=admin',
+    placeholder: existing ? 'Leave empty to keep the saved URI' : 'mongodb://user:password@host:27017/?authSource=admin',
     helper: existing
-      ? 'URI đã lưu không hiển thị lại. Chỉ nhập khi muốn thay đổi.'
-      : 'Hỗ trợ mongodb:// và mongodb+srv://. URI được lưu trên máy này (file 0600).',
+      ? 'The saved URI is not shown again. Enter one only to change it.'
+      : 'Supports mongodb:// and mongodb+srv://. The URI is stored on this machine (file mode 0600).',
     onChange: (value) => { state.uri = value; },
   });
   mountCheckbox(checkSlot, {
     label: 'Read-only',
-    description: 'Chặn mọi thao tác thêm, sửa, xoá và lệnh ghi. Nên bật cho môi trường production.',
+    description: 'Blocks all add, edit, delete and write operations. Turn it on for production environments.',
     checked: state.readOnly,
     onChange: (checked) => { state.readOnly = checked; },
   });
@@ -81,19 +81,19 @@ export function openConnectionDialog(ctx: Ctx, existing: ConnectionView | null, 
     onClick: () => {
       if (testing) return;
       testing = true;
-      showStatus('info', 'Đang kiểm tra kết nối…');
+      showStatus('info', 'Testing the connection…');
       void testConnection(ctx, existing, state.uri).then(
         (result) => {
           testing = false;
           if (result.ok) {
-            showStatus('success', `Kết nối thành công · MongoDB ${result.version}`, `Phản hồi trong ${result.elapsedMs} ms.`);
+            showStatus('success', `Connected · MongoDB ${result.version}`, `Responded in ${result.elapsedMs} ms.`);
           } else {
-            showStatus('error', result.error, HINTS[result.code] ?? 'Kiểm tra lại URI rồi thử lại.');
+            showStatus('error', result.error, HINTS[result.code] ?? 'Check the URI and try again.');
           }
         },
         (error: unknown) => {
           testing = false;
-          showStatus('error', error instanceof ApiError ? error.message : 'Không kiểm tra được kết nối', error instanceof ApiError ? HINTS[error.code] : undefined);
+          showStatus('error', error instanceof ApiError ? error.message : 'Could not test the connection', error instanceof ApiError ? HINTS[error.code] : undefined);
         },
       );
     },
@@ -124,11 +124,11 @@ async function save(
   done: (connection: ConnectionView) => void,
 ): Promise<void> {
   if (state.name.trim() === '') {
-    showStatus('error', 'Cần nhập tên connection', 'Tên giúp bạn nhận ra connection trong cây bên trái.');
+    showStatus('error', 'Enter a connection name', 'The name helps you find the connection in the left tree.');
     return;
   }
   if (!existing && state.uri.trim() === '') {
-    showStatus('error', 'Cần nhập URI', 'Dán chuỗi kết nối MongoDB, ví dụ mongodb://user:password@host:27017/.');
+    showStatus('error', 'Enter a URI', 'Paste a MongoDB connection string, for example mongodb://user:password@host:27017/.');
     return;
   }
   const body: Record<string, unknown> = { name: state.name.trim(), readOnly: state.readOnly };
@@ -136,11 +136,11 @@ async function save(
   if (state.uri.trim() !== '') body.uri = state.uri.trim();
   try {
     const reply = await ctx.api.call<ConnectionResponse>('/connections/save', body);
-    ctx.toast('success', `Đã lưu connection "${reply.connection.name}"`);
+    ctx.toast('success', `Saved connection "${reply.connection.name}"`);
     done(reply.connection);
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : 'Không lưu được connection';
-    const hint = error instanceof ApiError ? HINTS[error.code] ?? 'Kiểm tra lại thông tin rồi thử lại.' : undefined;
+    const message = error instanceof ApiError ? error.message : 'Could not save the connection';
+    const hint = error instanceof ApiError ? HINTS[error.code] ?? 'Check the details and try again.' : undefined;
     showStatus('error', message, hint);
   }
 }

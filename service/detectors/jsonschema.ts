@@ -50,7 +50,7 @@ export const jsonschemaDetector: Detector = {
       try {
         parsed = JSON.parse(file.text);
       } catch {
-        draft.warnings.push(`jsonschema: ${file.rel} không phải JSON hợp lệ, bỏ qua`);
+        draft.warnings.push(`jsonschema: ${file.rel} is not valid JSON, skipped`);
         continue;
       }
       const found: Found[] = [];

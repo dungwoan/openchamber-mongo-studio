@@ -54,7 +54,7 @@ async function readJson(file: string): Promise<unknown> {
     throw new HttpError(
       500,
       'STORE_CORRUPT',
-      `File ${file} không đọc được (sai định dạng JSON). Sửa hoặc xoá file này rồi thử lại.`,
+      `File ${file} could not be read (invalid JSON). Fix or delete this file, then try again.`,
     );
   }
 }
@@ -114,7 +114,7 @@ export async function listProjects(): Promise<ProjectsMap> {
     data = await readJson(projectsFile());
   } catch (error) {
     if (error instanceof HttpError && error.code === 'STORE_CORRUPT') {
-      console.error('mongo-studio: projects.json hỏng, bỏ qua bản nhớ theo dự án');
+      console.error('mongo-studio: projects.json is corrupt; project memory is ignored');
       return {};
     }
     throw error;
@@ -168,7 +168,7 @@ export async function listHistory(): Promise<HistoryEntry[]> {
  *   entry: Câu lệnh, connection, database và thời điểm chạy.
  */
 export function addHistory(entry: HistoryEntry): Promise<void> {
-  if (entry.text.trim() === '') throw badRequest('Không có nội dung để lưu vào lịch sử');
+  if (entry.text.trim() === '') throw badRequest('Nothing to save to history');
   return exclusive(async () => {
     const current = await listHistory();
     if (current[0]?.text === entry.text && current[0]?.connectionId === entry.connectionId) {

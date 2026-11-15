@@ -60,7 +60,7 @@ export async function collectFiles(
   }
 
   files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-  const warnings = oversized > 0 ? [`${oversized} file quá lớn (trên 256 KB) bị bỏ qua`] : [];
+  const warnings = oversized > 0 ? [`${oversized} files are too large (over 256 KB) and were skipped`] : [];
   return { files, truncated, warnings };
 }
 

@@ -69,7 +69,7 @@ function modelsOf(file: { rel: string; text: string }, draft: Draft, classNames:
   const name = table ?? snakeOf(className);
   classNames.set(className, name);
   if (/function\s+forTable\b/.test(body)) {
-    draft.warnings.push(`laravel-mongodb: ${className} đổi collection lúc chạy (forTable), chỉ ghi bảng gốc ${name}`);
+    draft.warnings.push(`laravel-mongodb: ${className} changes its collection at runtime (forTable); only the base table ${name} is recorded`);
   }
   draft.collections.push(collectionOf({
     name,

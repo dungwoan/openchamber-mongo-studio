@@ -110,7 +110,7 @@ async function selectionOf(dir: ProjectDir, connectionId: string): Promise<Selec
     registerDetected(dir.key, found);
     return { kind: 'detected' };
   }
-  throw notFound('Connection này không còn trong dự án. Tải lại danh sách rồi thử lại.');
+  throw notFound('This connection is no longer in the project. Reload the list and try again.');
 }
 
 /** Route /project/select: ghi nhớ connection người dùng vừa chọn; chọn lại thì xoá cờ đã ngắt. */

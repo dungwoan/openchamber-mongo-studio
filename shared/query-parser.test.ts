@@ -68,7 +68,7 @@ describe('find and chained calls', () => {
 
   test('rejects an unsupported chain call and duplicated chain calls', () => {
     expect(errorOf('db.users.find({}).explain()').message).toContain("'.explain()'");
-    expect(errorOf('db.users.find({}).limit(1).limit(2)').message).toContain("'.limit()' bị lặp");
+    expect(errorOf('db.users.find({}).limit(1).limit(2)').message).toContain("Method '.limit()' is repeated");
     expect(errorOf('db.users.insertOne({}).limit(1)').message).toContain("'.limit()'");
   });
 });
@@ -168,13 +168,13 @@ describe('other collection methods', () => {
   });
 
   test('update without operators is rejected with a hint', () => {
-    expect(errorOf('db.c.updateOne({a: 1}, {b: 2})').message).toContain('toán tử');
+    expect(errorOf('db.c.updateOne({a: 1}, {b: 2})').message).toContain('must use an operator');
   });
 
   test('database-level commands', () => {
     expect(one('db.getCollectionNames()')).toEqual({ kind: 'collectionNames' });
     expect(one('db.stats()')).toEqual({ kind: 'stats' });
-    expect(errorOf('db.stats(1)').message).toContain('không nhận tham số');
+    expect(errorOf('db.stats(1)').message).toContain('takes no arguments');
   });
 });
 
@@ -212,12 +212,12 @@ describe('statements and cursor selection', () => {
 describe('syntax errors', () => {
   test('rejects functions that are not on the allow list', () => {
     const error = errorOf('db.c.find({ t: Math.random() })');
-    expect(error.message).toContain('Giá trị không hợp lệ');
+    expect(error.message).toContain('Invalid value');
   });
 
   test('rejects unknown function calls with the list of supported ones', () => {
     const error = errorOf('db.c.find({ t: ObjectID("abc") })');
-    expect(error.message).toContain("Không hỗ trợ hàm 'ObjectID()'");
+    expect(error.message).toContain("Unsupported function 'ObjectID()'");
     expect(error.message).toContain('ObjectId');
   });
 
@@ -232,8 +232,8 @@ describe('syntax errors', () => {
   });
 
   test('rejects duplicated keys, unterminated strings and bad characters', () => {
-    expect(errorOf('db.c.find({a: 1, a: 2})').message).toContain("Khoá 'a' bị lặp");
-    expect(errorOf('db.c.find({a: "abc})').message).toContain('chưa đóng');
+    expect(errorOf('db.c.find({a: 1, a: 2})').message).toContain("Key 'a' is repeated");
+    expect(errorOf('db.c.find({a: "abc})').message).toContain('Unclosed string');
     expect(errorOf('db.c.find({a: 1 + 2})').message).toContain("'+'");
   });
 
@@ -241,7 +241,7 @@ describe('syntax errors', () => {
     const error = errorOf('db.c.find({\n  a: 1,\n  b: oops\n})');
     expect(error.line).toBe(3);
     expect(error.column).toBe(6);
-    expect(error.message).toContain('dòng 3, cột 6');
+    expect(error.message).toContain('line 3, column 6');
   });
 
   test('rejects BSON constructors with invalid arguments', () => {

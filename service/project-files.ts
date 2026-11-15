@@ -43,7 +43,7 @@ export type Detection =
 
 /** Thông báo chung cho mọi lỗi đường dẫn; không lặp lại đường dẫn người dùng gửi. */
 function badDirectory(): HttpError {
-  return new HttpError(400, 'BAD_DIRECTORY', 'Đường dẫn dự án không hợp lệ. Cần đường dẫn tuyệt đối tới một thư mục có thật.');
+  return new HttpError(400, 'BAD_DIRECTORY', 'The project path is invalid. It must be an absolute path to an existing folder.');
 }
 
 /**
@@ -96,7 +96,7 @@ async function readAllowed(dir: ProjectDir, name: string): Promise<string | null
     return null;
   }
   if (!isInside(dir.real, target)) {
-    console.warn(`mongo-studio: bỏ qua ${name} vì trỏ ra ngoài thư mục dự án`);
+    console.warn(`mongo-studio: skipped ${name} because it points outside the project folder`);
     return null;
   }
   try {
@@ -104,7 +104,7 @@ async function readAllowed(dir: ProjectDir, name: string): Promise<string | null
     if (!info.isFile() || info.size > MAX_FILE_BYTES) return null;
     return await readFile(target, 'utf8');
   } catch {
-    console.warn(`mongo-studio: không đọc được ${name} của dự án`);
+    console.warn(`mongo-studio: could not read ${name} in the project`);
     return null;
   }
 }
@@ -170,7 +170,7 @@ async function scannedSubdirs(dir: ProjectDir): Promise<string[]> {
     .map((entry) => entry.name)
     .sort();
   if (names.length > MAX_SUBDIRS) {
-    console.warn(`mongo-studio: dự án có ${names.length} thư mục con, chỉ quét cấp gốc`);
+    console.warn(`mongo-studio: the project has ${names.length} subfolders; only the top level is scanned`);
     return [];
   }
   return names;

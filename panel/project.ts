@@ -28,29 +28,29 @@ function whereOf(connection: ProjectConnectionView): string {
 /** Banner sau khi tự nối thành công, kèm nút Ngắt. */
 function connectedBanner(connection: ProjectConnectionView, onDisconnect: () => void): BannerProps {
   const title = connection.source === 'remembered'
-    ? `Đã tự nối lại connection "${connection.name}"`
-    : `Đã tự kết nối — ${whereOf(connection)} (từ ${connection.sourceFile ?? 'file cấu hình'} của dự án)`;
+    ? `Reconnected automatically to connection "${connection.name}"`
+    : `Connected automatically — ${whereOf(connection)} (from ${connection.sourceFile ?? 'config file'} in the project)`;
   return {
     tone: 'success',
     title,
     body: connection.source === 'remembered'
-      ? `${whereOf(connection)}. Ngắt thì lần mở sau sẽ không tự nối nữa.`
-      : 'Ngắt thì lần mở sau sẽ không tự nối nữa, cho tới khi bạn chọn lại connection trong cây.',
-    action: { label: 'Ngắt', onClick: onDisconnect },
+      ? `${whereOf(connection)}. If you disconnect, it will not reconnect automatically next time.`
+      : 'If you disconnect, it will not reconnect automatically next time, until you pick the connection in the tree again.',
+    action: { label: 'Disconnect', onClick: onDisconnect },
   };
 }
 
 /** Tiêu đề và hướng xử lý khi không nối được. Thông báo từ service đã không chứa URI. */
 function errorBanner(reply: Extract<ProjectConnectResponse, { status: 'error' }>): BannerProps {
   const title = reply.source === 'remembered'
-    ? `Không tự nối lại được connection "${reply.name ?? ''}"`
+    ? `Could not reconnect automatically to connection "${reply.name ?? ''}"`
     : reply.code === 'INVALID_URI'
-      ? `Chuỗi kết nối trong ${reply.sourceFile ?? 'file cấu hình'} không hợp lệ`
-      : `Không tự kết nối được (từ ${reply.sourceFile ?? 'file cấu hình'})`;
+      ? `The connection string in ${reply.sourceFile ?? 'config file'} is invalid`
+      : `Could not connect automatically (from ${reply.sourceFile ?? 'config file'})`;
   // Thông báo host không phân giải được đã có sẵn hướng xử lý; các lỗi khác thêm hướng chung.
   const body = reply.code === 'UNRESOLVABLE_HOST'
     ? reply.error
-    : `${reply.error} Sửa cấu hình rồi mở lại panel, hoặc chọn connection khác trong cây.`;
+    : `${reply.error} Fix the configuration and reopen the panel, or pick another connection in the tree.`;
   return { tone: 'error', title, body };
 }
 
@@ -83,7 +83,7 @@ export function startProjectConnect(options: Options): void {
     try {
       await api.call('/project/disconnect', { directory });
     } catch (error) {
-      show({ tone: 'error', title: 'Không ngắt được kết nối', body: messageOf(error) });
+      show({ tone: 'error', title: 'Could not disconnect', body: messageOf(error) });
       return;
     }
     if (tree.directory !== directory) return;
@@ -93,8 +93,8 @@ export function startProjectConnect(options: Options): void {
     await loadConnections(api);
     show({
       tone: 'info',
-      title: 'Đã ngắt kết nối tự động',
-      body: 'Lần mở sau sẽ không tự nối. Chọn connection trong cây để nối lại.',
+      title: 'Automatic connection turned off',
+      body: 'It will not connect automatically next time. Pick the connection in the tree to connect again.',
     });
   };
 

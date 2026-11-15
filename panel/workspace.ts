@@ -43,12 +43,12 @@ export function startWorkspace(options: StartOptions): void {
   };
   const copy = (text: string, what: string): void => {
     if (text.length > CLIPBOARD_MAX) {
-      toast('error', `${what} quá dài để copy (tối đa ${CLIPBOARD_MAX.toLocaleString('en-US')} ký tự). Thu hẹp kết quả rồi thử lại.`);
+      toast('error', `${what} is too long to copy (at most ${CLIPBOARD_MAX.toLocaleString('en-US')} characters). Narrow the result and try again.`);
       return;
     }
     host.writeClipboard(text).then(
-      () => toast('success', `Đã copy ${what.toLowerCase()}`),
-      () => toast('error', 'Không copy được vào clipboard'),
+      () => toast('success', `Copied ${what.toLowerCase()}`),
+      () => toast('error', 'Could not copy to the clipboard'),
     );
   };
 
@@ -112,8 +112,8 @@ export function startWorkspace(options: StartOptions): void {
     },
   });
   mountEmpty(emptyMain, {
-    title: 'Chưa có tab nào',
-    body: 'Chọn một collection trong cây bên trái để xem document, hoặc mở Query để viết lệnh kiểu mongo shell.',
+    title: 'No tabs open',
+    body: 'Pick a collection in the left tree to view its documents, or open Query to write a mongo shell command.',
     action: { label: 'New query', onClick: () => openQuery() },
   });
 
@@ -129,7 +129,7 @@ export function startWorkspace(options: StartOptions): void {
   }
 
   function connectionNameOf(connectionId: string | null): string {
-    return tree.connections.find((item) => item.id === connectionId)?.name ?? '(đã xoá)';
+    return tree.connections.find((item) => item.id === connectionId)?.name ?? '(deleted)';
   }
 
   function showActive(): void {
@@ -188,7 +188,7 @@ export function startWorkspace(options: StartOptions): void {
     const entries = diagramEntries(tree.directory, open);
     diagramsBody.replaceChildren();
     if (entries.length === 0) {
-      diagramsBody.appendChild(h('div', 'ms-tree-note ms-muted', 'Mở một dự án để xem sơ đồ database.'));
+      diagramsBody.appendChild(h('div', 'ms-tree-note ms-muted', 'Open a project to view its database diagram.'));
       return;
     }
     for (const entry of entries) {
@@ -221,7 +221,7 @@ export function startWorkspace(options: StartOptions): void {
   // Thao tác connection.
   function addConnection(): void {
     openConnectionDialog(ctx, null, (saved) => {
-      void loadConnections(api).then(() => toast('success', `Đã thêm connection "${saved.name}"`));
+      void loadConnections(api).then(() => toast('success', `Added connection "${saved.name}"`));
     });
   }
 
@@ -245,8 +245,8 @@ export function startWorkspace(options: StartOptions): void {
 
   async function deleteConnection(connection: ConnectionView): Promise<void> {
     const ok = await confirmDialog({
-      title: 'Xoá connection?',
-      message: `Xoá "${connection.name}" khỏi Mongo Studio. URI đã lưu trên máy này cũng bị xoá. Không hoàn tác được.`,
+      title: 'Delete connection?',
+      message: `Delete "${connection.name}" from Mongo Studio. Its saved URI on this machine is also deleted. This cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
@@ -256,7 +256,7 @@ export function startWorkspace(options: StartOptions): void {
       closeTabsOf(connection.id);
       forgetConnectionCache(connection.id);
       await loadConnections(api);
-      toast('success', `Đã xoá connection "${connection.name}"`);
+      toast('success', `Deleted connection "${connection.name}"`);
     } catch (error) {
       toast('error', messageOf(error));
     }
@@ -282,14 +282,14 @@ export function startWorkspace(options: StartOptions): void {
     variant: 'outline',
     size: 'sm',
     onClick: () => {
-      if (tree.directory === null) toast('info', 'Mở Mongo Studio trong một dự án để xem sơ đồ database.');
+      if (tree.directory === null) toast('info', 'Open Mongo Studio in a project to view its database diagram.');
       else openDiagram(tree.directory);
     },
   });
   subscribe(renderDiagramList);
   renderDiagramList();
   mountButton(queryBtnSlot, { label: '+ Query', variant: 'outline', size: 'sm', onClick: () => openQuery() });
-  treeToggle.setAttribute('aria-label', 'Hiện hoặc ẩn danh sách connection');
+  treeToggle.setAttribute('aria-label', 'Show or hide the connection list');
 
   mountSidebar(sidebarBody, ctx);
   showActive();

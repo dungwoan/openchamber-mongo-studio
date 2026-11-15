@@ -48,7 +48,7 @@ When the panel opens in a project folder, Mongo Studio connects to that project'
 
 A banner says what was connected, with a **Disconnect** button. Disconnecting stops auto-connect for this project until you pick a connection in the tree again. A connection found in a project file lives in memory only: it is not written to `connections.json`, it cannot be edited or deleted from the tree, and it is always **read-only**: inserts, updates, deletes and write commands in the Query tab are blocked. To write to that database, add the connection yourself with **Add connection** and leave Read-only unchecked. The project's file values are read only, and a file or subfolder that is a symlink pointing outside the project is ignored.
 
-If the URI's host cannot be resolved from this machine (for example `mongo`, the service name of a Docker Compose network), the banner says so: `Không phân giải được host …`. Use a connection on a public port, or add a connection manually with a URI that works here.
+If the URI's host cannot be resolved from this machine (for example `mongo`, the service name of a Docker Compose network), the banner says so: `Could not resolve host …`. Use a connection on a public port, or add a connection manually with a URI that works here.
 
 ## Database diagram
 
@@ -56,10 +56,10 @@ The **Diagram** button opens a tab that draws the collections and relations of t
 
 - The **Diagrams** category in the left column lists the open project; click it to open its diagram tab.
 - Solid lines and solid table headers come from declarations in code. Dashed lines and dashed cards are inferred from field names, for example a `customer_id` field pointing to `customers`. Each relation line has its own colour (blue for declared, amber for inferred) and an arrowhead.
-- **Hiển thị quan hệ** shows or hides all relation lines (on by default). Turning it off removes every edge; the tables stay.
-- Drag a table by its header to move it; the lines follow. **Sắp xếp lại** restores the automatic layout. Dragged positions are kept only for the current panel session and are not saved.
-- **Ghi báo cáo dự án** (one click) writes `.openchamber/mongo-studio/schema-scan.json` into the project and confirms the path. Mongo Studio never edits `.gitignore`; add `.openchamber/` yourself. If `.openchamber` is a symlink, the write is refused with an explanation.
-- When no models are found, **Nhờ agent bổ sung** puts a prompt into the chat composer, replacing its current text (it is not sent). The prompt asks the agent to write `.openchamber/mongo-studio/schema-report.json`, which Mongo Studio validates and merges into the diagram. This uses the `prompt` capability, approved at install.
+- **Show relations** shows or hides all relation lines (on by default). Turning it off removes every edge; the tables stay.
+- Drag a table by its header to move it; the lines follow. **Auto-arrange** restores the automatic layout. Dragged positions are kept only for the current panel session and are not saved.
+- **Write report to project** (one click) writes `.openchamber/mongo-studio/schema-scan.json` into the project and confirms the path. Mongo Studio never edits `.gitignore`; add `.openchamber/` yourself. If `.openchamber` is a symlink, the write is refused with an explanation.
+- When no models are found, **Ask agent to complete** puts a prompt into the chat composer, replacing its current text (it is not sent). The prompt asks the agent to write `.openchamber/mongo-studio/schema-report.json`, which Mongo Studio validates and merges into the diagram. This uses the `prompt` capability, approved at install.
 - With more than 80 collections, use the search box or pick a centre collection and a number of steps.
 
 ## Security

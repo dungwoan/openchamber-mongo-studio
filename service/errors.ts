@@ -49,12 +49,12 @@ export function notFound(message: string): HttpError {
 }
 
 const UNREACHABLE =
-  'Không kết nối được tới MongoDB sau 5 giây. Kiểm tra host, port, tường lửa (firewall) và MongoDB có đang chạy không, rồi thử lại.';
+  'Could not reach MongoDB after 5 seconds. Check the host, port and firewall, and that MongoDB is running, then try again.';
 const NETWORK =
-  'Mất kết nối mạng tới MongoDB. Kiểm tra mạng hoặc VPN, rồi thử lại. Kết nối sẽ được mở lại ở lần sau.';
+  'Lost the network connection to MongoDB. Check the network or VPN, then try again. The connection will be reopened next time.';
 const AUTH_FAILED =
-  'Sai tên đăng nhập hoặc mật khẩu, hoặc authSource không đúng. Kiểm tra lại URI (phần user:password@ và ?authSource=).';
-const INVALID_URI = 'URI không hợp lệ. Dạng đúng: mongodb://user:pass@host:27017/?authSource=admin hoặc mongodb+srv://...';
+  'Wrong username or password, or wrong authSource. Check the URI (the user:password@ part and ?authSource=).';
+const INVALID_URI = 'Invalid URI. Correct form: mongodb://user:pass@host:27017/?authSource=admin or mongodb+srv://...';
 
 type DriverError = { name?: string; code?: number | string; codeName?: string; message?: string };
 
@@ -78,7 +78,7 @@ function unresolvableHost(uri: string | null): HttpError {
   return new HttpError(
     424,
     'UNRESOLVABLE_HOST',
-    `Không phân giải được host "${host}" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.`,
+    `Could not resolve host "${host}" from this machine (it may be an internal Docker service name). Use a connection on a public port if you have one, or add a connection manually with a URI that works here.`,
   );
 }
 
@@ -106,15 +106,15 @@ function connectionProblem(error: DriverError, context: 'connect' | 'query'): Ht
 /** Phân loại lỗi thao tác do MongoDB trả về (sau khi đã kết nối được). */
 function operationProblem(error: DriverError, uri: string | null): HttpError {
   if (error.code === 50 || error.codeName === 'MaxTimeMSExpired') {
-    return new HttpError(422, 'TIMEOUT', 'Truy vấn vượt quá 30 giây. Thu hẹp filter, thêm index hoặc giảm limit rồi thử lại.');
+    return new HttpError(422, 'TIMEOUT', 'The query exceeded 30 seconds. Narrow the filter, add an index or lower the limit, then try again.');
   }
   if (error.code === 11000 || error.codeName === 'DuplicateKey') {
-    return new HttpError(422, 'DUPLICATE_KEY', `Trùng khoá duy nhất (unique index): ${redact(error.message ?? '', uri)}`);
+    return new HttpError(422, 'DUPLICATE_KEY', `Duplicate key (unique index): ${redact(error.message ?? '', uri)}`);
   }
   if (error.code === 13 || error.codeName === 'Unauthorized') {
-    return new HttpError(422, 'UNAUTHORIZED', 'Tài khoản không đủ quyền cho thao tác này. Kiểm tra role của user trong MongoDB.');
+    return new HttpError(422, 'UNAUTHORIZED', 'The account does not have permission for this operation. Check the user\'s roles in MongoDB.');
   }
-  return new HttpError(422, 'MONGO_ERROR', redact(error.message ?? 'Lỗi không xác định từ MongoDB', uri));
+  return new HttpError(422, 'MONGO_ERROR', redact(error.message ?? 'Unknown MongoDB error', uri));
 }
 
 /**
@@ -138,5 +138,5 @@ export function toHttpError(error: unknown, uri: string | null = null, context: 
     if (context === 'connect' && dnsFailure(error)) return unresolvableHost(uri);
     return connectionProblem(driverError, context) ?? operationProblem(driverError, uri);
   }
-  return new HttpError(500, 'INTERNAL', 'Lỗi nội bộ của Mongo Studio. Xem log của OpenChamber để biết thêm.');
+  return new HttpError(500, 'INTERNAL', 'Internal Mongo Studio error. See the OpenChamber log for details.');
 }

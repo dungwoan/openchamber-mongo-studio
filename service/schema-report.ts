@@ -57,7 +57,7 @@ function pathOf(value: unknown, warnings: string[]): string | null {
   const unsafe = value.length > LIMITS.path || value.startsWith('/') || value.includes('\\')
     || value.split('/').includes('..') || /^[A-Za-z]:/.test(value);
   if (unsafe) {
-    warnings.push('Bỏ qua một đường dẫn file không tương đối hoặc quá dài');
+    warnings.push('Skipped a file path that is not relative or is too long');
     return null;
   }
   return scrubString(value, LIMITS.path);
@@ -93,7 +93,7 @@ function collectionOf(value: unknown, origin: 'static' | 'agent', warnings: stri
   const name = strOf(value.name, LIMITS.name);
   if (name === '') return null;
   const rawFields = Array.isArray(value.fields) ? value.fields : [];
-  if (rawFields.length > LIMITS.fieldsPerCollection) warnings.push(`${name}: chỉ giữ ${LIMITS.fieldsPerCollection} field đầu`);
+  if (rawFields.length > LIMITS.fieldsPerCollection) warnings.push(`${name}: only the first ${LIMITS.fieldsPerCollection} fields are kept`);
   const fields = rawFields.slice(0, LIMITS.fieldsPerCollection).map((f) => fieldOf(f, 1, warnings)).filter((f): f is SchemaField => f !== null);
   const rawIndexes = Array.isArray(value.indexes) ? value.indexes : [];
   const indexes = rawIndexes.slice(0, LIMITS.indexesPerCollection).map(indexOf).filter((i): i is SchemaIndex => i !== null);
@@ -148,11 +148,11 @@ export function emptyReport(kind: SchemaReport['source']['kind'], warnings: stri
  */
 export function validateReport(input: unknown, origin: 'static' | 'agent' = 'static'): { report: SchemaReport | null; warnings: string[] } {
   if (!isObj(input) || input.version !== 1) {
-    return { report: null, warnings: ['Báo cáo không đúng định dạng v1'] };
+    return { report: null, warnings: ['The report is not in the v1 format'] };
   }
   const warnings: string[] = [];
   const rawCollections = Array.isArray(input.collections) ? input.collections : [];
-  if (rawCollections.length > LIMITS.collections) warnings.push(`Chỉ giữ ${LIMITS.collections} collection đầu`);
+  if (rawCollections.length > LIMITS.collections) warnings.push(`Only the first ${LIMITS.collections} collections are kept`);
   const collections = rawCollections
     .slice(0, LIMITS.collections)
     .map((c) => collectionOf(c, origin, warnings))
@@ -169,7 +169,7 @@ export function validateReport(input: unknown, origin: 'static' | 'agent' = 'sta
     relations,
   };
   if (Buffer.byteLength(JSON.stringify(report)) > LIMITS.bytes) {
-    return { report: null, warnings: ['Báo cáo quá lớn (trên 512 KB), bỏ qua'] };
+    return { report: null, warnings: ['The report is too large (over 512 KB), skipped'] };
   }
   return { report, warnings: report.warnings };
 }

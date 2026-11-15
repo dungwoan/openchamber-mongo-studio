@@ -13,7 +13,7 @@ export const RESPONSE_BUDGET = 6_000_000;
 /** Tìm connection theo id; ném 404 nếu đã bị xoá. */
 export async function requireRecord(id: string): Promise<ConnectionRecord> {
   const record = await findConnection(id);
-  if (!record) throw notFound('Không tìm thấy connection này. Tải lại danh sách rồi thử lại.');
+  if (!record) throw notFound('This connection was not found. Reload the list and try again.');
   return record;
 }
 
@@ -28,7 +28,7 @@ export function assertWritable(record: ConnectionRecord): void {
   throw new HttpError(
     403,
     'READ_ONLY',
-    `Connection "${record.name}" đang bật chế độ chỉ đọc (Read-only), không thể thêm, sửa hoặc xoá. Sửa connection và bỏ chọn Read-only nếu cần ghi.`,
+    `Connection "${record.name}" is Read-only, so documents cannot be added, edited or deleted. Edit the connection and clear Read-only if you need to write.`,
   );
 }
 
@@ -63,7 +63,7 @@ export function optionalObjectLiteral(text: string | undefined, label: string): 
   if (text === undefined || text.trim() === '') return undefined;
   const value = literalField(text, label);
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw badRequest(`${label} phải là một đối tượng {...}`);
+    throw badRequest(`${label} must be an object {...}`);
   }
   return value as Obj;
 }

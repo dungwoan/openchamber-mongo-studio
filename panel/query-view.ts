@@ -63,7 +63,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
 
   const editorSlot = slot('ms-slot ms-editor');
   element.appendChild(editorSlot);
-  element.appendChild(h('div', 'ms-hint ms-muted', 'Ctrl/⌘ + Enter chạy lệnh tại con trỏ. Nhiều lệnh cách nhau bằng ";". find và aggregate tối đa 500 dòng.'));
+  element.appendChild(h('div', 'ms-hint ms-muted', 'Ctrl/⌘ + Enter runs the command at the cursor. Separate several commands with ";". find and aggregate return at most 500 rows.'));
   const bannerSlot = slot('ms-slot');
   element.appendChild(bannerSlot);
 
@@ -78,17 +78,17 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
   element.appendChild(statusLine);
   element.appendChild(resultBox);
 
-  const historyHead = h('div', 'ms-section-head', 'Lịch sử gần đây');
+  const historyHead = h('div', 'ms-section-head', 'Recent history');
   const historySlot = slot('ms-slot');
   element.appendChild(historyHead);
   element.appendChild(historySlot);
 
-  const connName = (id: string | null): string => (id ? tree.connections.find((item) => item.id === id)?.name ?? '(đã xoá)' : '');
+  const connName = (id: string | null): string => (id ? tree.connections.find((item) => item.id === id)?.name ?? '(deleted)' : '');
 
   const connSelect = mountSelect(connSlot, {
     label: 'Connection',
     value: state.connectionId,
-    placeholder: 'Chọn connection',
+    placeholder: 'Choose a connection',
     options: tree.connections.map((item) => ({ id: item.id, label: item.name, hint: item.hosts })),
     onChange: (id) => void selectConnection(id),
   });
@@ -97,7 +97,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
   const dbSelect = mountSelect(dbSlot, {
     label: 'Database',
     value: state.database,
-    placeholder: state.connectionId ? 'Chọn database' : 'Chọn connection trước',
+    placeholder: state.connectionId ? 'Choose a database' : 'Choose a connection first',
     options: state.databases.map((item) => ({ id: item.name, label: item.name })),
     disabled: !state.connectionId,
     onChange: (name) => {
@@ -144,13 +144,13 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
     variant: 'outline',
     size: 'xs',
     onClick: () => {
-      if (state.result) ctx.copy(prettyJson(state.result.result), 'Kết quả');
+      if (state.result) ctx.copy(prettyJson(state.result.result), 'Result');
     },
   }));
 
   const historyList = mountList(historySlot, {
-    ariaLabel: 'Lịch sử query',
-    emptyText: 'Chưa có lịch sử. Lệnh chạy xong sẽ được lưu ở đây.',
+    ariaLabel: 'Query history',
+    emptyText: 'No history yet. Commands you run will be saved here.',
     items: [],
     onSelect: (id) => loadHistory(id),
   });
@@ -162,7 +162,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
     const node = slot('ms-slot ms-slot-banner');
     bannerSlot.appendChild(node);
     // Thông báo của lỗi cú pháp đã có dòng và cột; tiêu đề chỉ nêu loại lỗi.
-    const title = error.position ? 'Lỗi cú pháp' : 'Không chạy được lệnh';
+    const title = error.position ? 'Syntax error' : 'Could not run the command';
     handles.push(mountBanner(node, { tone: 'error', title, body: error.message }));
   }
 
@@ -170,15 +170,15 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
     resultBox.replaceChildren();
     statusLine.textContent = '';
     if (state.running) {
-      statusLine.textContent = 'Đang chạy…';
+      statusLine.textContent = 'Running…';
       return;
     }
     const result = state.result;
     if (!result) return;
-    const count = result.count === null ? '' : ` · ${groupDigits(result.count)} dòng`;
-    const cut = result.truncated ? ' · đã cắt ở 500 dòng' : '';
-    const write = result.isWrite ? ' · lệnh ghi' : '';
-    statusLine.textContent = `${result.kind}${count} · ${result.elapsedMs} ms · lệnh ${result.statement.index + 1}/${result.statement.total}${write}${cut}`;
+    const count = result.count === null ? '' : ` · ${groupDigits(result.count)} rows`;
+    const cut = result.truncated ? ' · truncated at 500 rows' : '';
+    const write = result.isWrite ? ' · write command' : '';
+    statusLine.textContent = `${result.kind}${count} · ${result.elapsedMs} ms · command ${result.statement.index + 1}/${result.statement.total}${write}${cut}`;
     renderValue(resultBox, result.result, state.view);
   }
 
@@ -194,17 +194,17 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
     state.database = keepDatabase;
     state.databases = [];
     connSelect.update({ value: id });
-    dbSelect.update({ value: null, options: [], disabled: !id, placeholder: id ? 'Đang tải database…' : 'Chọn connection trước' });
+    dbSelect.update({ value: null, options: [], disabled: !id, placeholder: id ? 'Loading databases…' : 'Choose a connection first' });
     if (!id) return;
     try {
       state.databases = await loadDatabases(ctx.api, id);
       dbSelect.update({
         options: state.databases.map((item) => ({ id: item.name, label: item.name })),
         value: state.database,
-        placeholder: 'Chọn database',
+        placeholder: 'Choose a database',
       });
     } catch (error) {
-      renderBanner(error instanceof ApiError ? error : new ApiError('Không tải được database', 'UNKNOWN', 0));
+      renderBanner(error instanceof ApiError ? error : new ApiError('Could not load databases', 'UNKNOWN', 0));
     }
   }
 
@@ -239,7 +239,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
   async function run(confirmed: boolean): Promise<void> {
     if (state.running) return;
     if (!state.connectionId || !state.database) {
-      renderBanner(new ApiError('Chọn connection và database trước khi chạy.', 'NO_TARGET', 400));
+      renderBanner(new ApiError('Choose a connection and a database before running.', 'NO_TARGET', 400));
       return;
     }
     state.running = true;
@@ -263,7 +263,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
         state.running = false;
         runButton.update({ loading: false, disabled: false });
         const ok = await confirmDialog({
-          title: 'Chạy lệnh ghi?',
+          title: 'Run write command?',
           message: `${error.message}\nDatabase: ${state.database} · Connection: ${connName(state.connectionId)}.`,
           confirmLabel: 'Run write',
           destructive: true,
@@ -271,7 +271,7 @@ export function createQueryView(ctx: Ctx, seed: QuerySeed | null): QueryView {
         if (ok) await run(true);
         return;
       }
-      state.error = error instanceof ApiError ? error : new ApiError('Không chạy được lệnh', 'UNKNOWN', 0);
+      state.error = error instanceof ApiError ? error : new ApiError('Could not run the command', 'UNKNOWN', 0);
       renderBanner(state.error);
     } finally {
       state.running = false;

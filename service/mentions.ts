@@ -55,9 +55,9 @@ export function searchRoute(body: Body): ReturnType<typeof searchMentions> {
 /** Route /mentions/resolve: mô tả collection được chọn để đưa vào ngữ cảnh của agent. */
 export async function resolveRoute(body: Body): Promise<MentionsResolveResult> {
   const ref = decodeMentionId(requireString(body, 'id', 256));
-  if (!ref) throw badRequest('Row này không còn hợp lệ. Mở lại menu @ rồi chọn lại.');
+  if (!ref) throw badRequest('This row is no longer valid. Reopen the @ menu and pick again.');
   const record = await findConnection(ref.connectionId);
-  if (!record) throw notFound('Connection của row này đã bị xoá. Mở lại menu @ rồi chọn lại.');
+  if (!record) throw notFound('The connection for this row was deleted. Reopen the @ menu and pick again.');
   const text = await withDatabase(record, ref.database, (db) =>
     describeCollection(db, record, ref.database, ref.collection));
   return { text };
@@ -100,7 +100,7 @@ function exampleText(doc: unknown): string {
 }
 
 function clip(text: string): string {
-  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 40)}\n...(đã cắt bớt)` : text;
+  return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 40)}\n...(truncated)` : text;
 }
 
 /** Tên kiểu BSON của một giá trị, ví dụ objectId, date, string, array. */

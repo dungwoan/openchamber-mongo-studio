@@ -187,7 +187,7 @@ describe('giới hạn quét', () => {
     const dir = await proj('big', { 'big.php': 'x'.repeat(MAX_FILE_BYTES + 1), 'small.php': '<?php' });
     const { files, warnings } = await collectFiles(await resolveProjectDir(dir));
     expect(files.map((f) => f.rel)).toEqual(['small.php']);
-    expect(warnings.join(' ')).toContain('quá lớn');
+    expect(warnings.join(' ')).toContain('too large');
   });
 
   test('trần số file: dừng và đánh dấu truncated', async () => {

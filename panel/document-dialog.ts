@@ -24,12 +24,12 @@ export function documentProblem(text: string): string | null {
   try {
     const value = parseLiteral(text);
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return 'Document phải là một đối tượng {...}, không phải mảng hay giá trị đơn.';
+      return 'The document must be an object {...}, not an array or a single value.';
     }
     return null;
   } catch (error) {
     if (error instanceof QuerySyntaxError) return error.message;
-    return 'Nội dung không hợp lệ';
+    return 'Invalid content';
   }
 }
 
@@ -72,7 +72,7 @@ export function openDocumentDialog(options: DocumentDialogOptions): void {
     multiline: true,
     rows: 18,
     mono: true,
-    helper: 'Dùng JSON hoặc ObjectId("..."), ISODate("..."), NumberLong("..."), UUID("...").',
+    helper: 'Use JSON or ObjectId("..."), ISODate("..."), NumberLong("..."), UUID("...").',
     onChange: (value) => {
       text = value;
       const problem = documentProblem(value);
@@ -108,8 +108,8 @@ export function openDocumentDialog(options: DocumentDialogOptions): void {
       dialog.close();
       options.onSaved();
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : 'Không lưu được document';
-      showError('Không lưu được', message);
+      const message = error instanceof ApiError ? error.message : 'Could not save the document';
+      showError('Could not save', message);
     } finally {
       busy = false;
       save?.update({ loading: false, disabled: documentProblem(text) !== null });

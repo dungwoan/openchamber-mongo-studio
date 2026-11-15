@@ -49,7 +49,7 @@ export async function listRoute(body: Body): Promise<ConnectionsListResponse> {
 
 function nameFrom(body: Body): string {
   const name = requireString(body, 'name', 64).trim();
-  if (name === '') throw badRequest("Tên connection không được để trống");
+  if (name === '') throw badRequest("The connection name cannot be empty");
   return name;
 }
 
@@ -59,7 +59,7 @@ export async function saveRoute(body: Body): Promise<ConnectionResponse> {
   const name = nameFrom(body);
   const readOnly = optionalBoolean(body, 'readOnly', false);
   const rawUri = optionalString(body, 'uri', 4096)?.trim() ?? '';
-  if (!id && rawUri === '') throw badRequest('Cần nhập URI khi thêm connection mới');
+  if (!id && rawUri === '') throw badRequest('A URI is needed to add a new connection');
   if (rawUri !== '') await assertUsableUri(rawUri);
 
   const record = await changeConnections((list) => {
@@ -69,7 +69,7 @@ export async function saveRoute(body: Body): Promise<ConnectionResponse> {
     }
     const index = list.findIndex((item) => item.id === id);
     const current = list[index];
-    if (!current) throw notFound('Không tìm thấy connection này. Tải lại danh sách rồi thử lại.');
+    if (!current) throw notFound('This connection was not found. Reload the list and try again.');
     const updated: ConnectionRecord = { ...current, name, readOnly, uri: rawUri || current.uri };
     const next = list.map((item, position) => (position === index ? updated : item));
     return { list: next, result: updated };
@@ -87,7 +87,7 @@ export async function saveRoute(body: Body): Promise<ConnectionResponse> {
 export async function deleteRoute(body: Body): Promise<OkResponse> {
   const id = requireString(body, 'id', 64);
   await changeConnections((list) => {
-    if (!list.some((item) => item.id === id)) throw notFound('Connection này không còn tồn tại.');
+    if (!list.some((item) => item.id === id)) throw notFound('This connection no longer exists.');
     return { list: list.filter((item) => item.id !== id), result: undefined };
   });
   await closeConnection(id);
@@ -120,7 +120,7 @@ async function probeDraft(uri: string): Promise<string> {
 
 /** Ping connection đã lưu bằng client trong pool; lỗi kết nối được ghi nhận qua clientFor. */
 async function probeStored(id: string | undefined): Promise<string> {
-  if (!id) throw badRequest('Cần id connection hoặc URI để kiểm tra');
+  if (!id) throw badRequest('A connection id or a URI is needed to test');
   const record = await requireRecord(id);
   const client = await clientFor(record);
   const info = await client.db('admin').command({ buildInfo: 1 });

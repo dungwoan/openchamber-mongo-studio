@@ -39,10 +39,10 @@ export function plainButton(label: string, className: string, onClick: () => voi
 /** Thời gian tương đối đơn giản cho lịch sử, ví dụ "5 phút trước". */
 export function relativeTime(at: number, now = Date.now()): string {
   const minutes = Math.round((now - at) / 60000);
-  if (minutes < 1) return 'vừa xong';
-  if (minutes < 60) return `${minutes} phút trước`;
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} giờ trước`;
+  if (hours < 24) return `${hours} h ago`;
   return new Date(at).toLocaleDateString('vi-VN');
 }
 

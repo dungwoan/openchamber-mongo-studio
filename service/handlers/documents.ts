@@ -14,7 +14,7 @@ import { assertWritable, connectionFrom, literalField } from './common.ts';
 function documentFrom(text: string, label: string): Document {
   const value = requireObject(literalField(text, label), label);
   if (Object.keys(value).some((key) => key.startsWith('$'))) {
-    throw badRequest(`${label} không được có khoá bắt đầu bằng $ ở cấp cao nhất`);
+    throw badRequest(`${label} cannot have a top-level key starting with $`);
   }
   return toBson(value) as Document;
 }
@@ -36,13 +36,13 @@ export async function replaceRoute(body: Body): Promise<ReplaceResponse> {
   assertWritable(record);
   const database = requireString(body, 'database', 255);
   const collection = requireString(body, 'collection', 255);
-  if (body.id === undefined || body.id === null) throw badRequest('Thiếu _id của document cần sửa');
+  if (body.id === undefined || body.id === null) throw badRequest('Missing the _id of the document to edit');
   const id = toBson(body.id);
   const doc = documentFrom(requireString(body, 'document', 1_000_000), 'Document');
   const result = await withDatabase(record, database, (db) =>
     db.collection(collection).replaceOne({ _id: id } as Document, doc));
   if (numberOf(result.matchedCount) === 0) {
-    throw notFound('Không tìm thấy document này, có thể đã bị xoá. Tải lại danh sách rồi thử lại.');
+    throw notFound('This document was not found; it may have been deleted. Reload the list and try again.');
   }
   return { matchedCount: numberOf(result.matchedCount) ?? 0, modifiedCount: numberOf(result.modifiedCount) ?? 0 };
 }
@@ -53,12 +53,12 @@ export async function deleteRoute(body: Body): Promise<DeleteResponse> {
   assertWritable(record);
   const database = requireString(body, 'database', 255);
   const collection = requireString(body, 'collection', 255);
-  if (body.id === undefined || body.id === null) throw badRequest('Thiếu _id của document cần xoá');
+  if (body.id === undefined || body.id === null) throw badRequest('Missing the _id of the document to delete');
   const id = toBson(body.id);
   const result = await withDatabase(record, database, (db) =>
     db.collection(collection).deleteOne({ _id: id } as Document));
   if (numberOf(result.deletedCount) === 0) {
-    throw notFound('Không tìm thấy document này, có thể đã bị xoá. Tải lại danh sách rồi thử lại.');
+    throw notFound('This document was not found; it may have been deleted. Reload the list and try again.');
   }
   return { deletedCount: numberOf(result.deletedCount) ?? 0 };
 }

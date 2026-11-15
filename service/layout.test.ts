@@ -106,7 +106,7 @@ describe('route layout (get/save)', () => {
     expect((save as HttpError).code).toBe('UNSAFE_PATH');
     const get = await layoutGetRoute({ directory: dir }).catch((e: unknown) => e);
     expect((get as HttpError).code).toBe('UNSAFE_PATH');
-    expect((get as HttpError).message).toContain('không ghi được báo cáo');
+    expect((get as HttpError).message).toContain('Could not write the report');
   });
 
   test('layout.json là symlink → 400 UNSAFE_PATH khi đọc', async () => {

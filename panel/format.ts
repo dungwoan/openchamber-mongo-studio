@@ -66,7 +66,7 @@ export function prettyJson(value: unknown): string {
 
 /** Lấy tên hiển thị của document: _id dạng ngắn, hoặc "(không có _id)". */
 export function idText(doc: unknown): string {
-  if (!isObject(doc) || !('_id' in doc)) return '(không có _id)';
+  if (!isObject(doc) || !('_id' in doc)) return '(no _id)';
   return cellText(doc._id);
 }
 
@@ -98,7 +98,7 @@ export function treeNode(value: unknown, label: string | null, depth = 0): HTMLE
   summary.appendChild(h('span', 'ms-tree-value ms-muted', kind));
   details.appendChild(summary);
   if (depth > 12) {
-    details.appendChild(h('div', 'ms-tree-row ms-muted', '…(quá sâu, xem JSON)'));
+    details.appendChild(h('div', 'ms-tree-row ms-muted', '…(too deep, see JSON)'));
     return details;
   }
   for (const [key, child] of entries) {

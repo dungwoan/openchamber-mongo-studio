@@ -12,7 +12,7 @@ const host = connectHost();
 const root = document.getElementById('root');
 
 if (!root) {
-  throw new Error('Thiếu phần tử #root trong panel/index.html');
+  throw new Error('Missing #root element in panel/index.html');
 }
 
 let started = false;

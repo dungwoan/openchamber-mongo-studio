@@ -22,5 +22,5 @@ export type Ctx = {
 
 /** Chuỗi lỗi an toàn để hiển thị, kể cả khi lỗi không phải Error. */
 export function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Lỗi không xác định';
+  return error instanceof Error ? error.message : 'Unknown error';
 }

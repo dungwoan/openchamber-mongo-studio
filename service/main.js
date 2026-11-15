@@ -29141,7 +29141,7 @@ class QuerySyntaxError extends Error {
 `).length;
     const column = offset - before.lastIndexOf(`
 `);
-    super(`Lỗi cú pháp tại dòng ${line}, cột ${column}: ${message}`);
+    super(`Syntax error at line ${line}, column ${column}: ${message}`);
     this.name = "QuerySyntaxError";
     this.offset = offset;
     this.line = line;
@@ -29206,7 +29206,7 @@ function skipLineComment(source, start) {
 function skipBlockComment(source, start) {
   const close = source.indexOf("*/", start + 2);
   if (close === -1)
-    throw new QuerySyntaxError("Comment /* chưa đóng", start, source);
+    throw new QuerySyntaxError("Unclosed comment /*", start, source);
   return close + 2;
 }
 function readToken(source, start) {
@@ -29222,14 +29222,14 @@ function readToken(source, start) {
     return readMatch(source, start, IDENT_RE, "ident");
   if (PUNCTUATION.includes(ch))
     return { kind: "punct", value: ch, pos: start, end: start + 1 };
-  throw new QuerySyntaxError(`Ký tự không hợp lệ '${ch}'`, start, source);
+  throw new QuerySyntaxError(`Invalid character '${ch}'`, start, source);
 }
 function readMatch(source, start, re, kind) {
   re.lastIndex = start;
   const match = re.exec(source);
   const text = match ? match[0] : "";
   if (!match || text.length === 0) {
-    throw new QuerySyntaxError("Không đọc được nội dung", start, source);
+    throw new QuerySyntaxError("Could not read the content", start, source);
   }
   return { kind, value: text, pos: start, end: start + text.length };
 }
@@ -29253,12 +29253,12 @@ function readString(source, start) {
       i++;
     }
   }
-  throw new QuerySyntaxError("Chuỗi chưa đóng dấu nháy", start, source);
+  throw new QuerySyntaxError("Unclosed string", start, source);
 }
 function readEscape(source, slash) {
   const code = source[slash + 1];
   if (code === undefined)
-    throw new QuerySyntaxError("Dấu \\ ở cuối chuỗi", slash, source);
+    throw new QuerySyntaxError("Backslash at the end of the string", slash, source);
   const simple = { n: `
 `, r: "\r", t: "\t", b: "\b", f: "\f", v: "\v", "0": "\x00" };
   if (code in simple)
@@ -29267,7 +29267,7 @@ function readEscape(source, slash) {
     const width = code === "x" ? 2 : 4;
     const hex = source.slice(slash + 2, slash + 2 + width);
     if (!new RegExp(`^[0-9a-fA-F]{${width}}$`).test(hex)) {
-      throw new QuerySyntaxError(`Ký tự thoát \\${code} không hợp lệ`, slash, source);
+      throw new QuerySyntaxError(`Invalid escape sequence \\${code}`, slash, source);
     }
     return { text: String.fromCharCode(parseInt(hex, 16)), next: slash + 2 + width };
   }
@@ -29296,7 +29296,7 @@ function readRegex(source, start) {
     pattern += ch;
     i++;
   }
-  throw new QuerySyntaxError("Regex chưa đóng bằng '/'", start, source);
+  throw new QuerySyntaxError("Regex is not closed with '/'", start, source);
 }
 function readRegexFlags(source, start, pattern, from) {
   let end = from;
@@ -29305,7 +29305,7 @@ function readRegexFlags(source, start, pattern, from) {
   const flags = source.slice(from, end);
   for (const flag of flags) {
     if (!REGEX_FLAGS.includes(flag)) {
-      throw new QuerySyntaxError(`Cờ regex '${flag}' không được hỗ trợ (dùng i, m, s, x, u)`, start, source);
+      throw new QuerySyntaxError(`Regex flag '${flag}' is not supported (use i, m, s, x, u)`, start, source);
     }
   }
   return { kind: "regex", value: pattern, flags, pos: start, end };
@@ -29321,7 +29321,7 @@ function isPlainObject(value) {
 }
 function describeToken(token) {
   if (token.kind === "eof")
-    return "hết lệnh";
+    return "end of command";
   if (token.kind === "string")
     return `"${token.value}"`;
   if (token.kind === "regex")
@@ -29347,7 +29347,7 @@ class Parser {
       const last = this.tokens[this.index - 1];
       statements.push({ start: first.pos, end: last.end, command });
       if (this.peek().kind !== "eof")
-        this.expectPunct(";", "sau mỗi lệnh");
+        this.expectPunct(";", "after a command");
     }
     return statements;
   }
@@ -29355,7 +29355,7 @@ class Parser {
     const value = this.parseValue(1);
     this.acceptPunct(";");
     if (this.peek().kind !== "eof")
-      this.fail(`Thừa nội dung ${describeToken(this.peek())}`);
+      this.fail(`Unexpected content ${describeToken(this.peek())}`);
     return value;
   }
   peek(offset = 0) {
@@ -29381,12 +29381,12 @@ class Parser {
     if (this.acceptPunct(value))
       return;
     const where = context ? ` ${context}` : "";
-    this.fail(`Cần '${value}'${where}, nhưng gặp ${describeToken(this.peek())}`);
+    this.fail(`Expected '${value}'${where}, but found ${describeToken(this.peek())}`);
   }
   expectIdent(context) {
     const token = this.peek();
     if (token.kind !== "ident")
-      this.fail(`Cần tên ${context}, nhưng gặp ${describeToken(token)}`);
+      this.fail(`Expected a ${context} name, but found ${describeToken(token)}`);
     return this.next();
   }
   fail(message, offset = this.peek().pos) {
@@ -29395,7 +29395,7 @@ class Parser {
   parseCommand() {
     const head = this.peek();
     if (head.kind !== "ident" || head.value !== "db") {
-      this.fail("Lệnh phải bắt đầu bằng 'db', ví dụ db.users.find({})");
+      this.fail("A command must start with 'db', for example db.users.find({})");
     }
     this.next();
     this.expectPunct(".", "sau db");
@@ -29408,43 +29408,43 @@ class Parser {
     if (name.value === "getCollection") {
       const args = this.parseArgs();
       if (args.length !== 1 || typeof args[0] !== "string") {
-        this.fail("db.getCollection(...) cần đúng một chuỗi tên collection", name.pos);
+        this.fail("db.getCollection(...) needs exactly one collection name string", name.pos);
       }
       if (!this.isPunct("."))
-        this.fail("Thiếu hàm sau db.getCollection(...), ví dụ .find({})", name.pos);
+        this.fail("Missing a method after db.getCollection(...), for example .find({})", name.pos);
       this.next();
-      const method = this.expectIdent("hàm collection");
+      const method = this.expectIdent("collection method");
       return this.finishCall(args[0], method);
     }
     if (!DB_METHODS.includes(name.value)) {
-      this.fail(`Không hỗ trợ 'db.${name.value}()'. Hỗ trợ: getCollectionNames(), stats(), getCollection("tên")`, name.pos);
+      this.fail(`Unsupported 'db.${name.value}()'. Supported: getCollectionNames(), stats(), getCollection("name")`, name.pos);
     }
     if (this.parseArgs().length > 0)
-      this.fail(`db.${name.value}() không nhận tham số`, name.pos);
+      this.fail(`db.${name.value}() takes no arguments`, name.pos);
     if (this.isPunct("."))
-      this.fail(`Không nối thêm hàm sau db.${name.value}()`, this.peek().pos);
+      this.fail(`Cannot chain another method after db.${name.value}()`, this.peek().pos);
     return { kind: name.value === "stats" ? "stats" : "collectionNames" };
   }
   parseCollectionPath(first) {
     let collection = first;
     while (this.isPunct(".")) {
       this.next();
-      const segment = this.expectIdent("sau dấu chấm");
+      const segment = this.expectIdent("after the dot");
       if (this.isPunct("("))
         return this.finishCall(collection, segment);
       collection += `.${segment.value}`;
     }
-    this.fail(`Thiếu hàm sau 'db.${collection}', ví dụ db.${collection}.find({})`);
+    this.fail(`Missing a method after 'db.${collection}', for example db.${collection}.find({})`);
   }
   finishCall(collection, method) {
     if (!COLLECTION_METHODS[method.value]) {
-      this.fail(`Không hỗ trợ 'db.${collection}.${method.value}()'. Hỗ trợ: ${Object.keys(COLLECTION_METHODS).join(", ")}`, method.pos);
+      this.fail(`Unsupported 'db.${collection}.${method.value}()'. Supported: ${Object.keys(COLLECTION_METHODS).join(", ")}`, method.pos);
     }
     const args = this.parseArgs();
     const chain = [];
     while (this.isPunct(".")) {
       this.next();
-      const callName = this.expectIdent("hàm nối tiếp");
+      const callName = this.expectIdent("chained method");
       chain.push({ method: callName.value, args: this.parseArgs(), offset: callName.pos });
     }
     return buildCommand(collection, method, args, chain, (message, offset) => this.fail(message, offset));
@@ -29455,7 +29455,7 @@ class Parser {
     while (!this.acceptPunct(")")) {
       args.push(this.parseValue(1));
       if (!this.acceptPunct(",")) {
-        this.expectPunct(")", "để đóng tham số");
+        this.expectPunct(")", "to close the arguments");
         break;
       }
     }
@@ -29463,7 +29463,7 @@ class Parser {
   }
   parseValue(depth) {
     if (depth > MAX_DEPTH)
-      this.fail(`Dữ liệu lồng quá sâu (tối đa ${MAX_DEPTH} cấp)`);
+      this.fail(`Data is nested too deeply (at most ${MAX_DEPTH} levels)`);
     const token = this.peek();
     if (token.kind === "string")
       return this.next().value;
@@ -29477,7 +29477,7 @@ class Parser {
       return this.parsePunctValue(depth);
     if (token.kind === "ident")
       return this.parseIdentValue();
-    return this.fail(`Thiếu giá trị, gặp ${describeToken(token)}`);
+    return this.fail(`Missing a value, found ${describeToken(token)}`);
   }
   parsePunctValue(depth) {
     if (this.isPunct("{"))
@@ -29488,7 +29488,7 @@ class Parser {
       this.next();
       return -numberValue(this.next().value);
     }
-    return this.fail(`Giá trị không hợp lệ ${describeToken(this.peek())}`);
+    return this.fail(`Invalid value ${describeToken(this.peek())}`);
   }
   parseIdentValue() {
     const token = this.peek();
@@ -29504,19 +29504,19 @@ class Parser {
       this.next();
       const ctor = this.expectIdent("sau new");
       if (!CONSTRUCTORS.includes(ctor.value))
-        this.fail(`Không hỗ trợ 'new ${ctor.value}()'`, ctor.pos);
+        this.fail(`Unsupported 'new ${ctor.value}()'`, ctor.pos);
       return this.parseConstructor(ctor.value, ctor.pos);
     }
     if (CONSTRUCTORS.includes(token.value) && this.isPunct("(", 1)) {
       this.next();
       if (token.value === "Date")
-        this.fail("Dùng 'new Date(...)' hoặc ISODate(...)", token.pos);
+        this.fail("Use 'new Date(...)' or ISODate(...)", token.pos);
       return this.parseConstructor(token.value, token.pos);
     }
     if (this.isPunct("(", 1)) {
-      this.fail(`Không hỗ trợ hàm '${token.value}()'. Hỗ trợ: ${CONSTRUCTORS.join(", ")}`);
+      this.fail(`Unsupported function '${token.value}()'. Supported: ${CONSTRUCTORS.join(", ")}`);
     }
-    return this.fail(`Giá trị không hợp lệ '${token.value}'. Dùng chuỗi "...", số, true, false, null hoặc hàm dựng BSON`);
+    return this.fail(`Invalid value '${token.value}'. Use a "..." string, a number, true, false, null or a BSON constructor`);
   }
   parseConstructor(name, offset) {
     const args = this.parseArgs();
@@ -29530,11 +29530,11 @@ class Parser {
       const keyToken = this.next();
       const key = this.objectKey(keyToken);
       if (Object.prototype.hasOwnProperty.call(obj, key))
-        this.fail(`Khoá '${key}' bị lặp`, keyToken.pos);
-      this.expectPunct(":", "sau tên khoá");
+        this.fail(`Key '${key}' is repeated`, keyToken.pos);
+      this.expectPunct(":", "after the key name");
       defineKey(obj, key, this.parseValue(depth + 1));
       if (!this.acceptPunct(",")) {
-        this.expectPunct("}", "để đóng đối tượng");
+        this.expectPunct("}", "to close the object");
         break;
       }
     }
@@ -29543,7 +29543,7 @@ class Parser {
   objectKey(token) {
     if (token.kind === "ident" || token.kind === "string" || token.kind === "number")
       return token.value;
-    return this.fail(`Khoá phải là tên, chuỗi hoặc số, gặp ${describeToken(token)}`, token.pos);
+    return this.fail(`A key must be a name, string or number, found ${describeToken(token)}`, token.pos);
   }
   parseArray(depth) {
     this.expectPunct("[");
@@ -29551,7 +29551,7 @@ class Parser {
     while (!this.acceptPunct("]")) {
       items.push(this.parseValue(depth + 1));
       if (!this.acceptPunct(",")) {
-        this.expectPunct("]", "để đóng mảng");
+        this.expectPunct("]", "to close the array");
         break;
       }
     }
@@ -29562,13 +29562,13 @@ function buildConstructor(name, args, fail) {
   const [arg] = args;
   const expectArity = (min, max) => {
     if (args.length < min || args.length > max)
-      fail(`${name}() nhận ${min === max ? min : `${min}-${max}`} tham số`);
+      fail(`${name}() takes ${min === max ? min : `${min}-${max}`} argument(s)`);
   };
   switch (name) {
     case "ObjectId":
       expectArity(1, 1);
       if (typeof arg !== "string" || !/^[0-9a-fA-F]{24}$/.test(arg))
-        fail("ObjectId cần chuỗi 24 ký tự hex");
+        fail("ObjectId needs a 24-character hex string");
       return { $oid: arg.toLowerCase() };
     case "ISODate":
     case "Date":
@@ -29577,29 +29577,29 @@ function buildConstructor(name, args, fail) {
     case "NumberLong":
       expectArity(1, 1);
       if (typeof arg === "number" && !Number.isSafeInteger(arg))
-        fail("NumberLong(số) cần số nguyên an toàn; dùng chuỗi cho số lớn");
+        fail("NumberLong(number) needs a safe integer; use a string for large numbers");
       if (typeof arg === "string" && !/^[+-]?\d+$/.test(arg))
-        fail("NumberLong cần chuỗi số nguyên");
+        fail("NumberLong needs an integer string");
       if (typeof arg !== "string" && typeof arg !== "number")
-        fail("NumberLong cần chuỗi hoặc số");
+        fail("NumberLong needs a string or a number");
       return { $numberLong: String(arg) };
     case "NumberInt":
       expectArity(1, 1);
       if (typeof arg !== "number" || !Number.isInteger(arg) || arg < -2147483648 || arg > 2147483647) {
-        fail("NumberInt cần số nguyên trong khoảng 32-bit");
+        fail("NumberInt needs an integer in the 32-bit range");
       }
       return { $numberInt: String(arg) };
     case "NumberDecimal":
       expectArity(1, 1);
       if (typeof arg !== "string" || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(arg)) {
-        fail('NumberDecimal cần chuỗi số thập phân, ví dụ "12.50"');
+        fail('NumberDecimal needs a decimal string, for example "12.50"');
       }
       return { $numberDecimal: arg };
     case "UUID":
       expectArity(1, 1);
       return { $uuid: uuidArgument(arg, fail) };
     default:
-      return fail(`Không hỗ trợ ${name}()`);
+      return fail(`Unsupported ${name}()`);
   }
 }
 function dateArgument(arg, count, fail) {
@@ -29608,16 +29608,16 @@ function dateArgument(arg, count, fail) {
   if (typeof arg === "number" && Number.isFinite(arg))
     return arg;
   if (typeof arg !== "string")
-    fail("Ngày cần chuỗi ISO 8601 hoặc số mili giây");
+    fail("A date needs an ISO 8601 string or a number of milliseconds");
   const time = Date.parse(arg);
   if (Number.isNaN(time))
-    fail(`Ngày không hợp lệ: "${arg}"`);
+    fail(`Invalid date: "${arg}"`);
   return new Date(time).toISOString();
 }
 function uuidArgument(arg, fail) {
   const hex = typeof arg === "string" ? arg.replace(/-/g, "") : "";
   if (!/^[0-9a-fA-F]{32}$/.test(hex))
-    fail("UUID cần chuỗi 32 ký tự hex (có thể có dấu -)");
+    fail("UUID needs a 32-character hex string (dashes allowed)");
   const lower = hex.toLowerCase();
   return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
 }
@@ -29629,30 +29629,30 @@ function countArgument(value, method, offset, fail) {
       number = Number(wrapped);
   }
   if (typeof number !== "number" || !Number.isInteger(number) || number < 0) {
-    fail(`${method}() cần số nguyên không âm`, offset);
+    fail(`${method}() needs a non-negative integer`, offset);
   }
   return number;
 }
 function expectObject(value, what, offset, fail) {
   if (!isPlainObject(value))
-    fail(`${what} phải là đối tượng {...}`, offset);
+    fail(`${what} must be an object {...}`, offset);
   return value;
 }
 function expectStageList(value, offset, fail) {
   if (!Array.isArray(value))
-    fail("aggregate cần một mảng các stage: aggregate([{ $match: {...} }])", offset);
-  return value.map((stage) => expectObject(stage, "Mỗi stage", offset, fail));
+    fail("aggregate needs an array of stages: aggregate([{ $match: {...} }])", offset);
+  return value.map((stage) => expectObject(stage, "Each stage", offset, fail));
 }
 function optionalObject(args, index, offset, fail) {
-  return args.length > index ? expectObject(args[index], "Tham số", offset, fail) : undefined;
+  return args.length > index ? expectObject(args[index], "Argument", offset, fail) : undefined;
 }
 function buildCommand(collection, method, args, chain, fail) {
   const spec = COLLECTION_METHODS[method.value];
   if (!spec) {
-    fail(`Không hỗ trợ 'db.${collection}.${method.value}()'. Hỗ trợ: ${Object.keys(COLLECTION_METHODS).join(", ")}`, method.pos);
+    fail(`Unsupported 'db.${collection}.${method.value}()'. Supported: ${Object.keys(COLLECTION_METHODS).join(", ")}`, method.pos);
   }
   if (args.length < spec.min || args.length > spec.max) {
-    fail(`${method.value}() nhận ${spec.min === spec.max ? spec.min : `${spec.min}-${spec.max}`} tham số`, method.pos);
+    fail(`${method.value}() takes ${spec.min === spec.max ? spec.min : `${spec.min}-${spec.max}`} argument(s)`, method.pos);
   }
   const base = buildBaseCommand(collection, method, args, fail);
   if (base.kind === "find")
@@ -29665,7 +29665,7 @@ function buildCommand(collection, method, args, chain, fail) {
 function rejectChain(chain, method, fail) {
   const first = chain[0];
   if (first)
-    fail(`Không nối '.${first.method}()' vào ${method}()`, first.offset);
+    fail(`Cannot chain '.${first.method}()' onto ${method}()`, first.offset);
 }
 function buildBaseCommand(collection, method, args, fail) {
   const offset = method.pos;
@@ -29680,7 +29680,7 @@ function buildBaseCommand(collection, method, args, fail) {
       return { kind: "count", collection, filter: filterAt(0) };
     case "distinct":
       if (typeof args[0] !== "string")
-        fail("distinct() cần tên field dạng chuỗi đứng đầu", offset);
+        fail("distinct() needs a field name string as its first argument", offset);
       return { kind: "distinct", collection, field: args[0], filter: filterAt(1) };
     case "aggregate":
       return buildAggregate(collection, args, offset, fail);
@@ -29699,10 +29699,10 @@ function buildAggregate(collection, args, offset, fail) {
   const stages = expectStageList(args[0], offset, fail);
   const options = {};
   if (args.length > 1) {
-    const raw = expectObject(args[1], "Tuỳ chọn aggregate", offset, fail);
+    const raw = expectObject(args[1], "aggregate option", offset, fail);
     for (const key of Object.keys(raw)) {
       if (!AGGREGATE_OPTIONS.has(key))
-        fail(`Tuỳ chọn aggregate '${key}' không được hỗ trợ (allowDiskUse, maxTimeMS)`, offset);
+        fail(`aggregate option '${key}' is not supported (allowDiskUse, maxTimeMS)`, offset);
     }
     if (raw.allowDiskUse !== undefined)
       options.allowDiskUse = raw.allowDiskUse === true;
@@ -29713,8 +29713,8 @@ function buildAggregate(collection, args, offset, fail) {
 }
 function buildInsertMany(collection, value, offset, fail) {
   if (!Array.isArray(value) || value.length === 0)
-    fail("insertMany() cần một mảng document, không rỗng", offset);
-  const documents = value.map((doc) => expectObject(doc, "Mỗi document", offset, fail));
+    fail("insertMany() needs a non-empty array of documents", offset);
+  const documents = value.map((doc) => expectObject(doc, "Each document", offset, fail));
   return { kind: "insertMany", collection, documents };
 }
 function buildUpdate(kind, collection, args, offset, fail) {
@@ -29722,7 +29722,7 @@ function buildUpdate(kind, collection, args, offset, fail) {
   const update = expectObject(args[1], "Update", offset, fail);
   const keys = Object.keys(update);
   if (keys.length === 0 || keys.some((key) => !key.startsWith("$"))) {
-    fail("Update phải dùng toán tử, ví dụ { $set: { field: giá trị } }", offset);
+    fail("An update must use an operator, for example { $set: { field: value } }", offset);
   }
   return { kind, collection, filter, update };
 }
@@ -29731,25 +29731,25 @@ function applyFindChain(command, chain, fail) {
   const result = { ...command };
   for (const call of chain) {
     if (seen.has(call.method))
-      fail(`Hàm '.${call.method}()' bị lặp`, call.offset);
+      fail(`Method '.${call.method}()' is repeated`, call.offset);
     seen.add(call.method);
     if (call.method === "toArray") {
       if (call.args.length > 0)
-        fail("toArray() không nhận tham số", call.offset);
+        fail("toArray() takes no arguments", call.offset);
     } else if (call.method === "sort") {
       if (call.args.length !== 1)
-        fail("sort() cần đúng một đối tượng", call.offset);
+        fail("sort() needs exactly one object", call.offset);
       result.sort = expectObject(call.args[0], "sort()", call.offset, fail);
     } else if (call.method === "skip" || call.method === "limit") {
       if (call.args.length !== 1)
-        fail(`${call.method}() cần đúng một số`, call.offset);
+        fail(`${call.method}() needs exactly one number`, call.offset);
       const count = countArgument(call.args[0], call.method, call.offset, fail);
       if (call.method === "skip")
         result.skip = count;
       else
         result.limit = count;
     } else {
-      fail(`Không hỗ trợ '.${call.method}()' sau find(). Hỗ trợ: sort, skip, limit, toArray`, call.offset);
+      fail(`Unsupported '.${call.method}()' after find(). Supported: sort, skip, limit, toArray`, call.offset);
     }
   }
   return result;
@@ -29759,7 +29759,7 @@ function parseQuery(text) {
 }
 function parseLiteral(text) {
   if (text.trim() === "")
-    throw new QuerySyntaxError("Chưa nhập nội dung", 0, text);
+    throw new QuerySyntaxError("Nothing entered yet", 0, text);
   return new Parser(tokenize(text), text).parseSingleValue();
 }
 function pickStatement(statements, cursor) {
@@ -29806,11 +29806,11 @@ function databaseOf(uri) {
 function uriProblem(uri) {
   const trimmed = uri.trim();
   if (trimmed.length > MAX_URI_LENGTH)
-    return "URI quá dài";
+    return "URI is too long";
   if (!SCHEME.test(trimmed))
-    return "URI phải bắt đầu bằng mongodb:// hoặc mongodb+srv://";
+    return "URI must start with mongodb:// or mongodb+srv://";
   if (hostsOf(trimmed) === "")
-    return "URI thiếu địa chỉ host, ví dụ mongodb://localhost:27017";
+    return "URI is missing the host, for example mongodb://localhost:27017";
   return null;
 }
 function secretsOf(uri) {
@@ -29865,10 +29865,10 @@ function badRequest(message) {
 function notFound(message) {
   return new HttpError(404, "NOT_FOUND", message);
 }
-var UNREACHABLE = "Không kết nối được tới MongoDB sau 5 giây. Kiểm tra host, port, tường lửa (firewall) và MongoDB có đang chạy không, rồi thử lại.";
-var NETWORK = "Mất kết nối mạng tới MongoDB. Kiểm tra mạng hoặc VPN, rồi thử lại. Kết nối sẽ được mở lại ở lần sau.";
-var AUTH_FAILED = "Sai tên đăng nhập hoặc mật khẩu, hoặc authSource không đúng. Kiểm tra lại URI (phần user:password@ và ?authSource=).";
-var INVALID_URI = "URI không hợp lệ. Dạng đúng: mongodb://user:pass@host:27017/?authSource=admin hoặc mongodb+srv://...";
+var UNREACHABLE = "Could not reach MongoDB after 5 seconds. Check the host, port and firewall, and that MongoDB is running, then try again.";
+var NETWORK = "Lost the network connection to MongoDB. Check the network or VPN, then try again. The connection will be reopened next time.";
+var AUTH_FAILED = "Wrong username or password, or wrong authSource. Check the URI (the user:password@ part and ?authSource=).";
+var INVALID_URI = "Invalid URI. Correct form: mongodb://user:pass@host:27017/?authSource=admin or mongodb+srv://...";
 var DNS_CODES = new Set(["EAI_AGAIN", "ENOTFOUND"]);
 function dnsFailure(error) {
   let current = error;
@@ -29883,7 +29883,7 @@ function dnsFailure(error) {
 function unresolvableHost(uri) {
   const first = hostsOf(uri ?? "").split(",")[0] ?? "";
   const host = first.replace(/:\d+$/, "");
-  return new HttpError(424, "UNRESOLVABLE_HOST", `Không phân giải được host "${host}" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.`);
+  return new HttpError(424, "UNRESOLVABLE_HOST", `Could not resolve host "${host}" from this machine (it may be an internal Docker service name). Use a connection on a public port if you have one, or add a connection manually with a URI that works here.`);
 }
 function driverErrorOf(error) {
   if (typeof error !== "object" || error === null)
@@ -29907,15 +29907,15 @@ function connectionProblem(error, context) {
 }
 function operationProblem(error, uri) {
   if (error.code === 50 || error.codeName === "MaxTimeMSExpired") {
-    return new HttpError(422, "TIMEOUT", "Truy vấn vượt quá 30 giây. Thu hẹp filter, thêm index hoặc giảm limit rồi thử lại.");
+    return new HttpError(422, "TIMEOUT", "The query exceeded 30 seconds. Narrow the filter, add an index or lower the limit, then try again.");
   }
   if (error.code === 11000 || error.codeName === "DuplicateKey") {
-    return new HttpError(422, "DUPLICATE_KEY", `Trùng khoá duy nhất (unique index): ${redact(error.message ?? "", uri)}`);
+    return new HttpError(422, "DUPLICATE_KEY", `Duplicate key (unique index): ${redact(error.message ?? "", uri)}`);
   }
   if (error.code === 13 || error.codeName === "Unauthorized") {
-    return new HttpError(422, "UNAUTHORIZED", "Tài khoản không đủ quyền cho thao tác này. Kiểm tra role của user trong MongoDB.");
+    return new HttpError(422, "UNAUTHORIZED", "The account does not have permission for this operation. Check the user's roles in MongoDB.");
   }
-  return new HttpError(422, "MONGO_ERROR", redact(error.message ?? "Lỗi không xác định từ MongoDB", uri));
+  return new HttpError(422, "MONGO_ERROR", redact(error.message ?? "Unknown MongoDB error", uri));
 }
 function toHttpError(error, uri = null, context = "query") {
   if (error instanceof HttpError)
@@ -29929,7 +29929,7 @@ function toHttpError(error, uri = null, context = "query") {
       return unresolvableHost(uri);
     return connectionProblem(driverError, context) ?? operationProblem(driverError, uri);
   }
-  return new HttpError(500, "INTERNAL", "Lỗi nội bộ của Mongo Studio. Xem log của OpenChamber để biết thêm.");
+  return new HttpError(500, "INTERNAL", "Internal Mongo Studio error. See the OpenChamber log for details.");
 }
 
 // service/pool.ts
@@ -30303,9 +30303,9 @@ function searchMentions(query) {
 function requireString(body, key, max = 512) {
   const value = body[key];
   if (typeof value !== "string" || value.trim() === "")
-    throw badRequest(`Thiếu trường '${key}'`);
+    throw badRequest(`Missing field '${key}'`);
   if (value.length > max)
-    throw badRequest(`Trường '${key}' quá dài (tối đa ${max} ký tự)`);
+    throw badRequest(`Field '${key}' is too long (at most ${max} characters)`);
   return value;
 }
 function optionalString(body, key, max = 1e5) {
@@ -30313,9 +30313,9 @@ function optionalString(body, key, max = 1e5) {
   if (value === undefined || value === null)
     return;
   if (typeof value !== "string")
-    throw badRequest(`Trường '${key}' phải là chuỗi`);
+    throw badRequest(`Field '${key}' must be a string`);
   if (value.length > max)
-    throw badRequest(`Trường '${key}' quá dài (tối đa ${max} ký tự)`);
+    throw badRequest(`Field '${key}' is too long (at most ${max} characters)`);
   return value;
 }
 function optionalBoolean(body, key, fallback) {
@@ -30323,7 +30323,7 @@ function optionalBoolean(body, key, fallback) {
   if (value === undefined || value === null)
     return fallback;
   if (typeof value !== "boolean")
-    throw badRequest(`Trường '${key}' phải là true hoặc false`);
+    throw badRequest(`Field '${key}' must be true or false`);
   return value;
 }
 function optionalInteger(body, key, min, max) {
@@ -30331,14 +30331,14 @@ function optionalInteger(body, key, min, max) {
   if (value === undefined || value === null)
     return;
   if (typeof value !== "number" || !Number.isInteger(value))
-    throw badRequest(`Trường '${key}' phải là số nguyên`);
+    throw badRequest(`Field '${key}' must be an integer`);
   if (value < min || value > max)
-    throw badRequest(`Trường '${key}' phải nằm trong khoảng ${min}-${max}`);
+    throw badRequest(`Field '${key}' must be between ${min} and ${max}`);
   return value;
 }
 function requireObject(value, key) {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw badRequest(`Trường '${key}' phải là đối tượng JSON`);
+    throw badRequest(`Field '${key}' must be a JSON object`);
   }
   return value;
 }
@@ -30427,7 +30427,7 @@ async function readJson(file) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new HttpError(500, "STORE_CORRUPT", `File ${file} không đọc được (sai định dạng JSON). Sửa hoặc xoá file này rồi thử lại.`);
+    throw new HttpError(500, "STORE_CORRUPT", `File ${file} could not be read (invalid JSON). Fix or delete this file, then try again.`);
   }
 }
 async function writeJson(file, value) {
@@ -30468,7 +30468,7 @@ async function listProjects() {
     data = await readJson(projectsFile());
   } catch (error) {
     if (error instanceof HttpError && error.code === "STORE_CORRUPT") {
-      console.error("mongo-studio: projects.json hỏng, bỏ qua bản nhớ theo dự án");
+      console.error("mongo-studio: projects.json is corrupt; project memory is ignored");
       return {};
     }
     throw error;
@@ -30506,7 +30506,7 @@ async function listHistory() {
 }
 function addHistory(entry) {
   if (entry.text.trim() === "")
-    throw badRequest("Không có nội dung để lưu vào lịch sử");
+    throw badRequest("Nothing to save to history");
   return exclusive(async () => {
     const current = await listHistory();
     if (current[0]?.text === entry.text && current[0]?.connectionId === entry.connectionId) {
@@ -30545,7 +30545,7 @@ var RESPONSE_BUDGET = 6000000;
 async function requireRecord(id) {
   const record = await findConnection(id);
   if (!record)
-    throw notFound("Không tìm thấy connection này. Tải lại danh sách rồi thử lại.");
+    throw notFound("This connection was not found. Reload the list and try again.");
   return record;
 }
 async function connectionFrom(body) {
@@ -30554,7 +30554,7 @@ async function connectionFrom(body) {
 function assertWritable(record) {
   if (!record.readOnly)
     return;
-  throw new HttpError(403, "READ_ONLY", `Connection "${record.name}" đang bật chế độ chỉ đọc (Read-only), không thể thêm, sửa hoặc xoá. Sửa connection và bỏ chọn Read-only nếu cần ghi.`);
+  throw new HttpError(403, "READ_ONLY", `Connection "${record.name}" is Read-only, so documents cannot be added, edited or deleted. Edit the connection and clear Read-only if you need to write.`);
 }
 function literalField(text, label) {
   try {
@@ -30573,7 +30573,7 @@ function optionalObjectLiteral(text, label) {
     return;
   const value = literalField(text, label);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw badRequest(`${label} phải là một đối tượng {...}`);
+    throw badRequest(`${label} must be an object {...}`);
   }
   return value;
 }
@@ -30721,10 +30721,10 @@ function searchRoute(body) {
 async function resolveRoute(body) {
   const ref = decodeMentionId(requireString(body, "id", 256));
   if (!ref)
-    throw badRequest("Row này không còn hợp lệ. Mở lại menu @ rồi chọn lại.");
+    throw badRequest("This row is no longer valid. Reopen the @ menu and pick again.");
   const record = await findConnection(ref.connectionId);
   if (!record)
-    throw notFound("Connection của row này đã bị xoá. Mở lại menu @ rồi chọn lại.");
+    throw notFound("The connection for this row was deleted. Reopen the @ menu and pick again.");
   const text = await withDatabase(record, ref.database, (db) => describeCollection(db, record, ref.database, ref.collection));
   return { text };
 }
@@ -30760,7 +30760,7 @@ function exampleText(doc) {
 }
 function clip(text) {
   return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 40)}
-...(đã cắt bớt)` : text;
+...(truncated)` : text;
 }
 function typeOf(value) {
   if (value === null)
@@ -30888,7 +30888,7 @@ var SKIP_DIR_NAMES = new Set(["node_modules", "vendor", "dist", "build", ".git",
 var MAX_PATH = 4096;
 var MONGO_SCHEME = /^mongodb(\+srv)?:\/\//;
 function badDirectory() {
-  return new HttpError(400, "BAD_DIRECTORY", "Đường dẫn dự án không hợp lệ. Cần đường dẫn tuyệt đối tới một thư mục có thật.");
+  return new HttpError(400, "BAD_DIRECTORY", "The project path is invalid. It must be an absolute path to an existing folder.");
 }
 async function resolveProjectDir(input) {
   if (typeof input !== "string" || input.trim() === "" || input.length > MAX_PATH || input.includes("\x00")) {
@@ -30920,7 +30920,7 @@ async function readAllowed(dir, name) {
     return null;
   }
   if (!isInside(dir.real, target)) {
-    console.warn(`mongo-studio: bỏ qua ${name} vì trỏ ra ngoài thư mục dự án`);
+    console.warn(`mongo-studio: skipped ${name} because it points outside the project folder`);
     return null;
   }
   try {
@@ -30929,7 +30929,7 @@ async function readAllowed(dir, name) {
       return null;
     return await readFile2(target, "utf8");
   } catch {
-    console.warn(`mongo-studio: không đọc được ${name} của dự án`);
+    console.warn(`mongo-studio: could not read ${name} in the project`);
     return null;
   }
 }
@@ -30975,7 +30975,7 @@ async function scannedSubdirs(dir) {
   }
   const names = entries.filter((entry) => entry.isDirectory() && isScannedSubdir(entry.name)).map((entry) => entry.name).sort();
   if (names.length > MAX_SUBDIRS) {
-    console.warn(`mongo-studio: dự án có ${names.length} thư mục con, chỉ quét cấp gốc`);
+    console.warn(`mongo-studio: the project has ${names.length} subfolders; only the top level is scanned`);
     return [];
   }
   return names;
@@ -31078,7 +31078,7 @@ async function selectionOf(dir, connectionId) {
     registerDetected(dir.key, found);
     return { kind: "detected" };
   }
-  throw notFound("Connection này không còn trong dự án. Tải lại danh sách rồi thử lại.");
+  throw notFound("This connection is no longer in the project. Reload the list and try again.");
 }
 async function selectRoute(body) {
   const dir = await resolveProjectDir(body.directory);
@@ -31138,7 +31138,7 @@ async function listRoute(body) {
 function nameFrom(body) {
   const name = requireString(body, "name", 64).trim();
   if (name === "")
-    throw badRequest("Tên connection không được để trống");
+    throw badRequest("The connection name cannot be empty");
   return name;
 }
 async function saveRoute(body) {
@@ -31147,7 +31147,7 @@ async function saveRoute(body) {
   const readOnly = optionalBoolean(body, "readOnly", false);
   const rawUri = optionalString(body, "uri", 4096)?.trim() ?? "";
   if (!id && rawUri === "")
-    throw badRequest("Cần nhập URI khi thêm connection mới");
+    throw badRequest("A URI is needed to add a new connection");
   if (rawUri !== "")
     await assertUsableUri(rawUri);
   const record = await changeConnections((list) => {
@@ -31158,7 +31158,7 @@ async function saveRoute(body) {
     const index = list.findIndex((item) => item.id === id);
     const current = list[index];
     if (!current)
-      throw notFound("Không tìm thấy connection này. Tải lại danh sách rồi thử lại.");
+      throw notFound("This connection was not found. Reload the list and try again.");
     const updated = { ...current, name, readOnly, uri: rawUri || current.uri };
     const next = list.map((item, position) => position === index ? updated : item);
     return { list: next, result: updated };
@@ -31175,7 +31175,7 @@ async function deleteRoute(body) {
   const id = requireString(body, "id", 64);
   await changeConnections((list) => {
     if (!list.some((item) => item.id === id))
-      throw notFound("Connection này không còn tồn tại.");
+      throw notFound("This connection no longer exists.");
     return { list: list.filter((item) => item.id !== id), result: undefined };
   });
   await closeConnection(id);
@@ -31205,7 +31205,7 @@ async function probeDraft(uri) {
 }
 async function probeStored(id) {
   if (!id)
-    throw badRequest("Cần id connection hoặc URI để kiểm tra");
+    throw badRequest("A connection id or a URI is needed to test");
   const record = await requireRecord(id);
   const client = await clientFor(record);
   const info = await client.db("admin").command({ buildInfo: 1 });
@@ -31230,7 +31230,7 @@ async function testRoute(body) {
 function documentFrom(text, label) {
   const value = requireObject(literalField(text, label), label);
   if (Object.keys(value).some((key) => key.startsWith("$"))) {
-    throw badRequest(`${label} không được có khoá bắt đầu bằng $ ở cấp cao nhất`);
+    throw badRequest(`${label} cannot have a top-level key starting with $`);
   }
   return toBson(value);
 }
@@ -31249,12 +31249,12 @@ async function replaceRoute(body) {
   const database = requireString(body, "database", 255);
   const collection = requireString(body, "collection", 255);
   if (body.id === undefined || body.id === null)
-    throw badRequest("Thiếu _id của document cần sửa");
+    throw badRequest("Missing the _id of the document to edit");
   const id = toBson(body.id);
   const doc = documentFrom(requireString(body, "document", 1e6), "Document");
   const result = await withDatabase(record, database, (db) => db.collection(collection).replaceOne({ _id: id }, doc));
   if (numberOf(result.matchedCount) === 0) {
-    throw notFound("Không tìm thấy document này, có thể đã bị xoá. Tải lại danh sách rồi thử lại.");
+    throw notFound("This document was not found; it may have been deleted. Reload the list and try again.");
   }
   return { matchedCount: numberOf(result.matchedCount) ?? 0, modifiedCount: numberOf(result.modifiedCount) ?? 0 };
 }
@@ -31264,11 +31264,11 @@ async function deleteRoute2(body) {
   const database = requireString(body, "database", 255);
   const collection = requireString(body, "collection", 255);
   if (body.id === undefined || body.id === null)
-    throw badRequest("Thiếu _id của document cần xoá");
+    throw badRequest("Missing the _id of the document to delete");
   const id = toBson(body.id);
   const result = await withDatabase(record, database, (db) => db.collection(collection).deleteOne({ _id: id }));
   if (numberOf(result.deletedCount) === 0) {
-    throw notFound("Không tìm thấy document này, có thể đã bị xoá. Tải lại danh sách rồi thử lại.");
+    throw notFound("This document was not found; it may have been deleted. Reload the list and try again.");
   }
   return { deletedCount: numberOf(result.deletedCount) ?? 0 };
 }
@@ -31374,7 +31374,7 @@ async function runWrite(db, command) {
       return scalarOutcome(command.kind, { deletedCount: numberOf(r.deletedCount) });
     }
     default:
-      throw new Error(`Lệnh ${command.kind} không phải lệnh ghi`);
+      throw new Error(`${command.kind} is not a write command`);
   }
 }
 async function runCollectionNames(db) {
@@ -31392,16 +31392,16 @@ async function runRoute(body) {
   const confirmWrite = optionalBoolean(body, "confirmWrite", false);
   const statements = parseQuery(text);
   if (statements.length === 0)
-    throw badRequest("Chưa có lệnh nào. Ví dụ: db.users.find({}).limit(10)");
+    throw badRequest("No command yet. Example: db.users.find({}).limit(10)");
   const index = pickStatement(statements, cursor);
   const statement = statements[index];
   if (!statement)
-    throw badRequest("Không xác định được lệnh cần chạy");
+    throw badRequest("Could not determine the command to run");
   const write = isWriteCommand(statement.command);
   if (write)
     assertWritable(record);
   if (write && !confirmWrite) {
-    throw new HttpError(409, "CONFIRM_REQUIRED", `Lệnh ghi "${statement.command.kind}" sẽ thay đổi dữ liệu. Xác nhận để chạy.`);
+    throw new HttpError(409, "CONFIRM_REQUIRED", `The write command "${statement.command.kind}" will change data. Confirm to run it.`);
   }
   const started = Date.now();
   const outcome = await withDatabase(record, database, (db) => executeCommand(db, statement.command));
@@ -31434,7 +31434,7 @@ async function historyAddRoute(body) {
   const database = requireString(body, "database", 255);
   const exists = await findConnection(connectionId) !== undefined;
   if (!exists)
-    throw badRequest("Connection không còn tồn tại");
+    throw badRequest("Connection no longer exists");
   await addHistory({ text, connectionId, database, at: Date.now() });
   return { ok: true };
 }
@@ -31482,7 +31482,7 @@ function pathOf(value, warnings) {
     return null;
   const unsafe = value.length > LIMITS.path || value.startsWith("/") || value.includes("\\") || value.split("/").includes("..") || /^[A-Za-z]:/.test(value);
   if (unsafe) {
-    warnings.push("Bỏ qua một đường dẫn file không tương đối hoặc quá dài");
+    warnings.push("Skipped a file path that is not relative or is too long");
     return null;
   }
   return scrubString(value, LIMITS.path);
@@ -31519,7 +31519,7 @@ function collectionOf(value, origin, warnings) {
     return null;
   const rawFields = Array.isArray(value.fields) ? value.fields : [];
   if (rawFields.length > LIMITS.fieldsPerCollection)
-    warnings.push(`${name}: chỉ giữ ${LIMITS.fieldsPerCollection} field đầu`);
+    warnings.push(`${name}: only the first ${LIMITS.fieldsPerCollection} fields are kept`);
   const fields = rawFields.slice(0, LIMITS.fieldsPerCollection).map((f) => fieldOf(f, 1, warnings)).filter((f) => f !== null);
   const rawIndexes = Array.isArray(value.indexes) ? value.indexes : [];
   const indexes = rawIndexes.slice(0, LIMITS.indexesPerCollection).map(indexOf).filter((i) => i !== null);
@@ -31562,12 +31562,12 @@ function emptyReport(kind, warnings = []) {
 }
 function validateReport(input, origin = "static") {
   if (!isObj(input) || input.version !== 1) {
-    return { report: null, warnings: ["Báo cáo không đúng định dạng v1"] };
+    return { report: null, warnings: ["The report is not in the v1 format"] };
   }
   const warnings = [];
   const rawCollections = Array.isArray(input.collections) ? input.collections : [];
   if (rawCollections.length > LIMITS.collections)
-    warnings.push(`Chỉ giữ ${LIMITS.collections} collection đầu`);
+    warnings.push(`Only the first ${LIMITS.collections} collections are kept`);
   const collections = rawCollections.slice(0, LIMITS.collections).map((c) => collectionOf(c, origin, warnings)).filter((c) => c !== null);
   const rawRelations = Array.isArray(input.relations) ? input.relations : [];
   const relations = rawRelations.slice(0, LIMITS.relations).map(relationOf).filter((r) => r !== null);
@@ -31581,7 +31581,7 @@ function validateReport(input, origin = "static") {
     relations
   };
   if (Buffer.byteLength(JSON.stringify(report)) > LIMITS.bytes) {
-    return { report: null, warnings: ["Báo cáo quá lớn (trên 512 KB), bỏ qua"] };
+    return { report: null, warnings: ["The report is too large (over 512 KB), skipped"] };
   }
   return { report, warnings: report.warnings };
 }
@@ -31793,7 +31793,7 @@ var jsonschemaDetector = {
       try {
         parsed = JSON.parse(file.text);
       } catch {
-        draft.warnings.push(`jsonschema: ${file.rel} không phải JSON hợp lệ, bỏ qua`);
+        draft.warnings.push(`jsonschema: ${file.rel} is not valid JSON, skipped`);
         continue;
       }
       const found = [];
@@ -31872,7 +31872,7 @@ function modelsOf(file, draft, classNames, pending) {
   const name = table ?? snakeOf(className);
   classNames.set(className, name);
   if (/function\s+forTable\b/.test(body)) {
-    draft.warnings.push(`laravel-mongodb: ${className} đổi collection lúc chạy (forTable), chỉ ghi bảng gốc ${name}`);
+    draft.warnings.push(`laravel-mongodb: ${className} changes its collection at runtime (forTable); only the base table ${name} is recorded`);
   }
   draft.collections.push(collectionOf2({
     name,
@@ -32074,7 +32074,7 @@ var prismaDetector = {
       const datasource = /datasource\s+\w+\s*\{/.exec(file.text);
       const provider = datasource ? /provider\s*=\s*"(\w+)"/.exec(insideOf(file.text, datasource.index + datasource[0].length - 1))?.[1] : undefined;
       if (provider !== "mongodb") {
-        draft.warnings.push(`prisma: chỉ hỗ trợ provider "mongodb", bỏ qua ${file.rel}`);
+        draft.warnings.push(`prisma: only the "mongodb" provider is supported, skipped ${file.rel}`);
         continue;
       }
       for (const match of file.text.matchAll(/model\s+(\w+)\s*\{/g)) {
@@ -32269,7 +32269,7 @@ async function collectFiles(dir, limits = {}) {
     }
   }
   files.sort((a, b) => a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0);
-  const warnings = oversized > 0 ? [`${oversized} file quá lớn (trên 256 KB) bị bỏ qua`] : [];
+  const warnings = oversized > 0 ? [`${oversized} files are too large (over 256 KB) and were skipped`] : [];
   return { files, truncated, warnings };
 }
 async function listEntries(absolute) {
@@ -32318,7 +32318,7 @@ async function reportFolder(dir, create) {
       info = await lstat(current);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
-      throw new HttpError(400, "UNSAFE_PATH", "Không thể ghi báo cáo: .openchamber/mongo-studio trong dự án là symlink hoặc không phải thư mục, nên không ghi được báo cáo. Xoá hoặc đổi tên mục đó rồi thử lại.");
+      throw new HttpError(400, "UNSAFE_PATH", "Could not write the report: .openchamber/mongo-studio in the project is a symlink or not a folder, so the report cannot be written. Remove or rename it, then try again.");
     }
   }
   return current;
@@ -32328,7 +32328,7 @@ async function writeReport(dir, fileName, text) {
   const target = path5.join(folder, fileName);
   const existing = await lstat(target).catch(() => null);
   if (existing?.isSymbolicLink()) {
-    throw new HttpError(400, "UNSAFE_PATH", `${fileName} là symlink, không ghi đè.`);
+    throw new HttpError(400, "UNSAFE_PATH", `${fileName} is a symlink; it will not be overwritten.`);
   }
   const temp = `${target}.${process.pid}.${randomUUID3()}.tmp`;
   try {
@@ -32351,13 +32351,13 @@ async function readProjectFile(dir, fileName, maxBytes) {
   if (info === null)
     return null;
   if (info.isSymbolicLink() || !info.isFile()) {
-    throw new HttpError(400, "UNSAFE_PATH", `Không đọc được ${fileName}: đây là symlink hoặc không phải file thường.`);
+    throw new HttpError(400, "UNSAFE_PATH", `Could not read ${fileName}: it is a symlink or not a regular file.`);
   }
   if (info.size > maxBytes)
-    throw new HttpError(413, "TOO_LARGE", `${fileName} quá lớn để đọc.`);
+    throw new HttpError(413, "TOO_LARGE", `${fileName} is too large to read.`);
   const real = await realpath2(file);
   if (!isInside(dir.real, real))
-    throw new HttpError(400, "UNSAFE_PATH", `${fileName} nằm ngoài dự án.`);
+    throw new HttpError(400, "UNSAFE_PATH", `${fileName} is outside the project.`);
   return readFile4(real, "utf8");
 }
 async function readAgentReport(dir) {
@@ -32370,17 +32370,17 @@ async function readAgentReport(dir) {
     if (info === null)
       return { report: null, warnings: [] };
     if (info.isSymbolicLink() || !info.isFile())
-      return { report: null, warnings: ["schema-report.json không phải file thường, bỏ qua"] };
+      return { report: null, warnings: ["schema-report.json is not a regular file, skipped"] };
     if (info.size > LIMITS.bytes)
-      return { report: null, warnings: ["schema-report.json quá lớn, bỏ qua"] };
+      return { report: null, warnings: ["schema-report.json is too large, skipped"] };
     const real = await realpath2(file);
     if (!isInside(dir.real, real))
-      return { report: null, warnings: ["schema-report.json nằm ngoài dự án, bỏ qua"] };
+      return { report: null, warnings: ["schema-report.json is outside the project, skipped"] };
     let parsed;
     try {
       parsed = JSON.parse(await readFile4(real, "utf8"));
     } catch {
-      return { report: null, warnings: ["schema-report.json không phải JSON hợp lệ, bỏ qua"] };
+      return { report: null, warnings: ["schema-report.json is not valid JSON, skipped"] };
     }
     return validateReport(parsed, "agent");
   } catch (error) {
@@ -32432,26 +32432,26 @@ function isLayoutKey(key) {
 }
 function validateLayout(input) {
   if (Buffer.byteLength(JSON.stringify(input ?? null)) > MAX_LAYOUT_BYTES) {
-    return { error: "Vị trí sơ đồ quá lớn (trên 256 KB), không lưu." };
+    return { error: "The diagram positions are too large (over 256 KB); not saved." };
   }
   if (!isObj3(input) || !isObj3(input.positions)) {
-    return { error: 'Vị trí sơ đồ phải là đối tượng có khoá "positions".' };
+    return { error: 'The diagram positions must be an object with a "positions" key.' };
   }
   const entries = Object.entries(input.positions);
   if (entries.length > MAX_LAYOUT_ENTRIES) {
-    return { error: `Quá ${MAX_LAYOUT_ENTRIES} vị trí; chỉ lưu tối đa ${MAX_LAYOUT_ENTRIES} bảng.` };
+    return { error: `More than ${MAX_LAYOUT_ENTRIES} positions; at most ${MAX_LAYOUT_ENTRIES} tables can be saved.` };
   }
   const positions = {};
   for (const [key, value] of entries) {
     if (!isLayoutKey(key))
-      return { error: "Tên bảng trong vị trí không hợp lệ (rỗng, quá dài, có ký tự điều khiển hoặc khoá đặc biệt)." };
+      return { error: "A table name in the positions is invalid (empty, too long, contains control characters or a reserved key)." };
     if (!isObj3(value) || typeof value.x !== "number" || typeof value.y !== "number" || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
-      return { error: `Vị trí của "${key}" phải có x và y là số hữu hạn.` };
+      return { error: `The position of "${key}" must have finite numbers for x and y.` };
     }
     positions[key] = { x: value.x, y: value.y };
   }
   if (Buffer.byteLength(JSON.stringify({ version: 1, positions })) > MAX_LAYOUT_BYTES) {
-    return { error: "Vị trí sơ đồ quá lớn (trên 256 KB), không lưu." };
+    return { error: "The diagram positions are too large (over 256 KB); not saved." };
   }
   return { positions };
 }
@@ -32516,7 +32516,7 @@ var SERVICE_NAME = "mongo-studio";
 var port = Number(process.env.OPENCHAMBER_SERVICE_PORT);
 var token = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
 if (!Number.isInteger(port) || port <= 0 || token === "") {
-  console.error("mongo-studio: thiếu OPENCHAMBER_SERVICE_PORT hoặc OPENCHAMBER_SERVICE_TOKEN");
+  console.error("mongo-studio: missing OPENCHAMBER_SERVICE_PORT or OPENCHAMBER_SERVICE_TOKEN");
   process.exit(1);
 }
 function authorized(header) {
@@ -32535,7 +32535,7 @@ function readBody(req) {
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new HttpError(413, "TOO_LARGE", "Nội dung gửi lên quá lớn (tối đa 4 MB)"));
+        reject(new HttpError(413, "TOO_LARGE", "The request body is too large (at most 4 MB)"));
         req.destroy();
         return;
       }
@@ -32552,25 +32552,25 @@ function parseBody(text) {
   try {
     value = JSON.parse(text);
   } catch {
-    throw new HttpError(400, "BAD_JSON", "Nội dung gửi lên không phải JSON hợp lệ");
+    throw new HttpError(400, "BAD_JSON", "The request body is not valid JSON");
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new HttpError(400, "BAD_JSON", "Nội dung gửi lên phải là một đối tượng JSON");
+    throw new HttpError(400, "BAD_JSON", "The request body must be a JSON object");
   }
   return value;
 }
 async function dispatch(req, res, path) {
   if (path === "/health") {
-    send(res, req.method === "GET" ? 200 : 405, req.method === "GET" ? { ok: true, service: SERVICE_NAME } : { error: "Dùng GET cho /health", code: "METHOD" });
+    send(res, req.method === "GET" ? 200 : 405, req.method === "GET" ? { ok: true, service: SERVICE_NAME } : { error: "Use GET for /health", code: "METHOD" });
     return;
   }
   const handler = ROUTES[path];
   if (!handler) {
-    send(res, 404, { error: `Không có route ${path}`, code: "NOT_FOUND" });
+    send(res, 404, { error: `No route ${path}`, code: "NOT_FOUND" });
     return;
   }
   if (req.method !== "POST") {
-    send(res, 405, { error: "Route này chỉ nhận POST với body JSON", code: "METHOD" });
+    send(res, 405, { error: "This route only accepts POST with a JSON body", code: "METHOD" });
     return;
   }
   const result = await handler(parseBody(await readBody(req)));
@@ -32578,7 +32578,7 @@ async function dispatch(req, res, path) {
 }
 async function handle(req, res) {
   if (!authorized(req.headers.authorization)) {
-    send(res, 401, { error: "Thiếu hoặc sai token", code: "UNAUTHORIZED" });
+    send(res, 401, { error: "Missing or invalid token", code: "UNAUTHORIZED" });
     return;
   }
   const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
@@ -32587,7 +32587,7 @@ async function handle(req, res) {
   } catch (error) {
     const mapped = toHttpError(error);
     if (mapped.status === 500)
-      console.error(`mongo-studio: lỗi ở ${path} (${error instanceof Error ? error.name : "unknown"})`);
+      console.error(`mongo-studio: error at ${path} (${error instanceof Error ? error.name : "unknown"})`);
     send(res, mapped.status, mapped.toBody());
   }
 }

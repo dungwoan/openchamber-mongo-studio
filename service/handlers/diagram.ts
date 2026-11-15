@@ -55,7 +55,7 @@ export async function reportFolder(dir: ProjectDir, create: boolean): Promise<st
       info = await lstat(current);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
-      throw new HttpError(400, 'UNSAFE_PATH', 'Không thể ghi báo cáo: .openchamber/mongo-studio trong dự án là symlink hoặc không phải thư mục, nên không ghi được báo cáo. Xoá hoặc đổi tên mục đó rồi thử lại.');
+      throw new HttpError(400, 'UNSAFE_PATH', 'Could not write the report: .openchamber/mongo-studio in the project is a symlink or not a folder, so the report cannot be written. Remove or rename it, then try again.');
     }
   }
   return current;
@@ -70,7 +70,7 @@ export async function writeReport(dir: ProjectDir, fileName: string, text: strin
   const target = path.join(folder, fileName);
   const existing = await lstat(target).catch(() => null);
   if (existing?.isSymbolicLink()) {
-    throw new HttpError(400, 'UNSAFE_PATH', `${fileName} là symlink, không ghi đè.`);
+    throw new HttpError(400, 'UNSAFE_PATH', `${fileName} is a symlink; it will not be overwritten.`);
   }
   const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
@@ -99,11 +99,11 @@ export async function readProjectFile(dir: ProjectDir, fileName: string, maxByte
   const info = await lstat(file).catch(() => null);
   if (info === null) return null;
   if (info.isSymbolicLink() || !info.isFile()) {
-    throw new HttpError(400, 'UNSAFE_PATH', `Không đọc được ${fileName}: đây là symlink hoặc không phải file thường.`);
+    throw new HttpError(400, 'UNSAFE_PATH', `Could not read ${fileName}: it is a symlink or not a regular file.`);
   }
-  if (info.size > maxBytes) throw new HttpError(413, 'TOO_LARGE', `${fileName} quá lớn để đọc.`);
+  if (info.size > maxBytes) throw new HttpError(413, 'TOO_LARGE', `${fileName} is too large to read.`);
   const real = await realpath(file);
-  if (!isInside(dir.real, real)) throw new HttpError(400, 'UNSAFE_PATH', `${fileName} nằm ngoài dự án.`);
+  if (!isInside(dir.real, real)) throw new HttpError(400, 'UNSAFE_PATH', `${fileName} is outside the project.`);
   return readFile(real, 'utf8');
 }
 
@@ -115,15 +115,15 @@ async function readAgentReport(dir: ProjectDir): Promise<{ report: SchemaReport 
     const file = path.join(folder, AGENT_REPORT_FILE);
     const info = await lstat(file).catch(() => null);
     if (info === null) return { report: null, warnings: [] };
-    if (info.isSymbolicLink() || !info.isFile()) return { report: null, warnings: ['schema-report.json không phải file thường, bỏ qua'] };
-    if (info.size > LIMITS.bytes) return { report: null, warnings: ['schema-report.json quá lớn, bỏ qua'] };
+    if (info.isSymbolicLink() || !info.isFile()) return { report: null, warnings: ['schema-report.json is not a regular file, skipped'] };
+    if (info.size > LIMITS.bytes) return { report: null, warnings: ['schema-report.json is too large, skipped'] };
     const real = await realpath(file);
-    if (!isInside(dir.real, real)) return { report: null, warnings: ['schema-report.json nằm ngoài dự án, bỏ qua'] };
+    if (!isInside(dir.real, real)) return { report: null, warnings: ['schema-report.json is outside the project, skipped'] };
     let parsed: unknown;
     try {
       parsed = JSON.parse(await readFile(real, 'utf8'));
     } catch {
-      return { report: null, warnings: ['schema-report.json không phải JSON hợp lệ, bỏ qua'] };
+      return { report: null, warnings: ['schema-report.json is not valid JSON, skipped'] };
     }
     return validateReport(parsed, 'agent');
   } catch (error) {

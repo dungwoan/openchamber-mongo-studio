@@ -63,7 +63,7 @@ describe('validateReport', () => {
     const collections = Array.from({ length: 300 }, (_, i) => ({ name: `c${i}`, fields, indexes: [] }));
     const result = validateReport({ version: 1, collections, relations: [] });
     expect(result.report).toBeNull();
-    expect(result.warnings.join(' ')).toContain('quá lớn');
+    expect(result.warnings.join(' ')).toContain('too large');
   });
 
   test('tên có URI bị xoá, tên và type bị cắt độ dài', () => {

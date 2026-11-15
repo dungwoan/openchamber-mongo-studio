@@ -73,7 +73,7 @@ export async function loadConnections(api: Api): Promise<void> {
     const alive = new Set(reply.connections.map((item) => item.id));
     for (const id of [...tree.expandedConnections]) if (!alive.has(id)) tree.expandedConnections.delete(id);
   } catch (error) {
-    tree.connectionsError = error instanceof Error ? error.message : 'Không tải được danh sách connection';
+    tree.connectionsError = error instanceof Error ? error.message : 'Could not load the connection list';
   } finally {
     tree.loadingConnections = false;
     emit();
@@ -153,7 +153,7 @@ export async function loadCollections(api: Api, connectionId: string, database: 
 }
 
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : 'Lỗi không xác định';
+  return error instanceof Error ? error.message : 'Unknown error';
 }
 
 /** Tên connection theo id, hoặc null nếu connection đã bị xoá. */

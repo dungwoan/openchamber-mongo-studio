@@ -157,7 +157,7 @@ export function groupShards(names: string[]): Group[] {
   const groups: Group[] = [];
   if (grouped.size > 0) {
     const members = [...grouped].sort();
-    groups.push({ id: `${SHARD_PREFIX}_*`, label: `${SHARD_PREFIX}_* (${members.length} bảng)`, members });
+    groups.push({ id: `${SHARD_PREFIX}_*`, label: `${SHARD_PREFIX}_* (${members.length} tables)`, members });
   }
   for (const name of names) {
     if (!grouped.has(name)) groups.push({ id: name, label: name, members: [name] });

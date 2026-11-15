@@ -56,9 +56,9 @@ export function databaseOf(uri: string): string {
  */
 export function uriProblem(uri: string): string | null {
   const trimmed = uri.trim();
-  if (trimmed.length > MAX_URI_LENGTH) return 'URI quá dài';
-  if (!SCHEME.test(trimmed)) return 'URI phải bắt đầu bằng mongodb:// hoặc mongodb+srv://';
-  if (hostsOf(trimmed) === '') return 'URI thiếu địa chỉ host, ví dụ mongodb://localhost:27017';
+  if (trimmed.length > MAX_URI_LENGTH) return 'URI is too long';
+  if (!SCHEME.test(trimmed)) return 'URI must start with mongodb:// or mongodb+srv://';
+  if (hostsOf(trimmed) === '') return 'URI is missing the host, for example mongodb://localhost:27017';
   return null;
 }
 

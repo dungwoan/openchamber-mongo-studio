@@ -32,25 +32,25 @@ export function isLayoutKey(key: string): boolean {
  */
 export function validateLayout(input: unknown): { positions: LayoutPositions } | { error: string } {
   if (Buffer.byteLength(JSON.stringify(input ?? null)) > MAX_LAYOUT_BYTES) {
-    return { error: 'Vị trí sơ đồ quá lớn (trên 256 KB), không lưu.' };
+    return { error: 'The diagram positions are too large (over 256 KB); not saved.' };
   }
   if (!isObj(input) || !isObj(input.positions)) {
-    return { error: 'Vị trí sơ đồ phải là đối tượng có khoá "positions".' };
+    return { error: 'The diagram positions must be an object with a "positions" key.' };
   }
   const entries = Object.entries(input.positions);
   if (entries.length > MAX_LAYOUT_ENTRIES) {
-    return { error: `Quá ${MAX_LAYOUT_ENTRIES} vị trí; chỉ lưu tối đa ${MAX_LAYOUT_ENTRIES} bảng.` };
+    return { error: `More than ${MAX_LAYOUT_ENTRIES} positions; at most ${MAX_LAYOUT_ENTRIES} tables can be saved.` };
   }
   const positions: LayoutPositions = {};
   for (const [key, value] of entries) {
-    if (!isLayoutKey(key)) return { error: 'Tên bảng trong vị trí không hợp lệ (rỗng, quá dài, có ký tự điều khiển hoặc khoá đặc biệt).' };
+    if (!isLayoutKey(key)) return { error: 'A table name in the positions is invalid (empty, too long, contains control characters or a reserved key).' };
     if (!isObj(value) || typeof value.x !== 'number' || typeof value.y !== 'number' || !Number.isFinite(value.x) || !Number.isFinite(value.y)) {
-      return { error: `Vị trí của "${key}" phải có x và y là số hữu hạn.` };
+      return { error: `The position of "${key}" must have finite numbers for x and y.` };
     }
     positions[key] = { x: value.x, y: value.y };
   }
   if (Buffer.byteLength(JSON.stringify({ version: 1, positions })) > MAX_LAYOUT_BYTES) {
-    return { error: 'Vị trí sơ đồ quá lớn (trên 256 KB), không lưu.' };
+    return { error: 'The diagram positions are too large (over 256 KB); not saved.' };
   }
   return { positions };
 }

@@ -65,18 +65,18 @@ type Scene = { cards: Map<string, Card>; positions: Map<string, Point>; nodes: M
 /** Lời nhắc gửi cho agent: ghi đúng đường dẫn và đúng schema v1; không yêu cầu đọc dữ liệu thật. */
 export function agentPrompt(): string {
   const skeleton = '{"version":1,"generatedAt":"<ISO 8601>","source":{"kind":"agent","detectors":[]},"truncated":false,"warnings":[],'
-    + '"collections":[{"name":"<tên collection>","model":"<model hoặc null>","file":"<đường dẫn tương đối hoặc null>","orm":"<ORM>",'
-    + '"confidence":"declared|inferred","origin":"agent","fields":[{"name":"<tên>","type":"<kiểu>","required":false,"pk":false,"array":false,"inferred":false,"children":[]}],'
-    + '"indexes":[{"name":"<tên>","keys":["<field>"],"unique":false,"ttl":false}]}],'
-    + '"relations":[{"from":"<collection>","to":"<collection>","field":"<field hoặc null>","kind":"belongsTo|hasMany|hasOne|belongsToMany|reference","confidence":"declared|inferred"}]}';
+    + '"collections":[{"name":"<collection name>","model":"<model or null>","file":"<relative path or null>","orm":"<ORM>",'
+    + '"confidence":"declared|inferred","origin":"agent","fields":[{"name":"<name>","type":"<type>","required":false,"pk":false,"array":false,"inferred":false,"children":[]}],'
+    + '"indexes":[{"name":"<name>","keys":["<field>"],"unique":false,"ttl":false}]}],'
+    + '"relations":[{"from":"<collection>","to":"<collection>","field":"<field or null>","kind":"belongsTo|hasMany|hasOne|belongsToMany|reference","confidence":"declared|inferred"}]}';
   return [
-    'Hãy đọc mã nguồn của dự án này và ghi mô tả các collection MongoDB vào file .openchamber/mongo-studio/schema-report.json (đường dẫn tương đối trong dự án).',
-    'Yêu cầu:',
-    `- Chỉ ghi JSON đúng schema v1 sau đây: ${skeleton}`,
-    '- Không ghi URI, mật khẩu, token hay giá trị dữ liệu thật. Không đọc dữ liệu trong database.',
-    '- Tối đa 300 collection, 100 field mỗi collection, 1000 quan hệ. Đường dẫn file phải tương đối, không có "..".',
-    '- Chỉ đưa vào những gì có trong mã nguồn; dùng confidence "inferred" khi chỉ suy ra từ tên field.',
-    'Sau khi ghi xong, báo lại số collection và số quan hệ đã ghi.',
+    'Read the source code of this project and write a description of its MongoDB collections to the file .openchamber/mongo-studio/schema-report.json (a path relative to the project).',
+    'Requirements:',
+    `- Write only JSON that matches this v1 schema: ${skeleton}`,
+    '- Do not write URIs, passwords, tokens or real data values. Do not read data from the database.',
+    '- At most 300 collections, 100 fields per collection and 1000 relations. File paths must be relative and must not contain "..".',
+    '- Include only what appears in the source code; use confidence "inferred" when it is only inferred from field names.',
+    'When done, report how many collections and relations you wrote.',
   ].join('\n');
 }
 
@@ -164,12 +164,12 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     return node;
   };
 
-  const scanButton = mountButton(toolbarSlot(rowA), { label: 'Quét lại', variant: 'outline', size: 'sm', onClick: () => void scan(false) });
-  const writeButton = mountButton(toolbarSlot(rowA), { label: 'Ghi báo cáo dự án', variant: 'secondary', size: 'sm', onClick: () => void scan(true) });
+  const scanButton = mountButton(toolbarSlot(rowA), { label: 'Rescan', variant: 'outline', size: 'sm', onClick: () => void scan(false) });
+  const writeButton = mountButton(toolbarSlot(rowA), { label: 'Write report to project', variant: 'secondary', size: 'sm', onClick: () => void scan(true) });
   // Công tắc có trạng thái do caller giữ: phải commit giá trị đề xuất bằng update, nếu không prop không đổi và click luôn đề xuất true.
   const relationSwitch = mountSwitch(toolbarSlot(rowA), {
-    label: 'Hiển thị quan hệ',
-    description: 'Vẽ cạnh giữa các bảng',
+    label: 'Show relations',
+    description: 'Draw lines between tables',
     checked: showRelations,
     onChange: (checked: boolean) => {
       showRelations = checked;
@@ -177,29 +177,29 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       render();
     },
   });
-  const fullButton = mountButton(toolbarSlot(rowA), { label: 'Toàn màn hình', variant: 'ghost', size: 'sm', onClick: () => toggleFullscreen() });
+  const fullButton = mountButton(toolbarSlot(rowA), { label: 'Fullscreen', variant: 'ghost', size: 'sm', onClick: () => toggleFullscreen() });
   const agentSlot = toolbarSlot(rowA);
   agentSlot.hidden = true;
-  const agentButton = mountButton(agentSlot, { label: 'Nhờ agent bổ sung', variant: 'outline', size: 'sm', onClick: () => void askAgent() });
+  const agentButton = mountButton(agentSlot, { label: 'Ask agent to complete', variant: 'outline', size: 'sm', onClick: () => void askAgent() });
   const search = mountSearchField(toolbarSlot(rowB), {
     value: '',
-    placeholder: 'Tìm bảng…',
+    placeholder: 'Search tables…',
     onChange: (value: string) => { query = value; render(); },
   });
   const focus = mountSelect(toolbarSlot(rowB), {
     value: '',
     options: [],
-    placeholder: 'Bảng trung tâm',
+    placeholder: 'Center table',
     searchable: true,
     onChange: (value: string) => { center = value === '' ? null : value; render(); },
   });
   const hopsSelect = mountSelect(toolbarSlot(rowB), {
     value: '1',
-    options: [{ id: '1', label: '1 bước' }, { id: '2', label: '2 bước' }, { id: '3', label: '3 bước' }],
+    options: [{ id: '1', label: '1 step' }, { id: '2', label: '2 steps' }, { id: '3', label: '3 steps' }],
     onChange: (value: string) => { hops = Number(value) || 1; render(); },
   });
   const clear = mountButton(toolbarSlot(rowB), {
-    label: 'Xoá lọc',
+    label: 'Clear filter',
     variant: 'ghost',
     size: 'sm',
     onClick: () => {
@@ -211,7 +211,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     },
   });
   const arrange = mountButton(toolbarSlot(rowB), {
-    label: 'Sắp xếp lại',
+    label: 'Auto-arrange',
     variant: 'ghost',
     size: 'sm',
     onClick: () => { manual.clear(); render(); void persist(); },
@@ -221,7 +221,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   function toggleFullscreen(): void {
     fullscreen = !fullscreen;
     root.classList.toggle('ms-diagram-fullscreen', fullscreen);
-    fullButton.update({ label: fullscreen ? 'Thu nhỏ' : 'Toàn màn hình' });
+    fullButton.update({ label: fullscreen ? 'Exit fullscreen' : 'Fullscreen' });
     viewKey = '';
     render();
   }
@@ -239,7 +239,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     try {
       return await ctx.api.call<DiagramLayoutGetResponse>('/diagram/layout/get', { directory });
     } catch (error) {
-      if (!disposed) ctx.toast('error', `Không đọc được vị trí đã lưu: ${messageOf(error)}`);
+      if (!disposed) ctx.toast('error', `Could not read the saved positions: ${messageOf(error)}`);
       return null;
     }
   }
@@ -263,7 +263,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       bannerSlot.replaceChildren();
       bannerSlot.hidden = true;
     } catch (error) {
-      if (!disposed && seq === loadSeq) showBanner('error', 'Không tải được sơ đồ', messageOf(error));
+      if (!disposed && seq === loadSeq) showBanner('error', 'Could not load the diagram', messageOf(error));
     } finally {
       if (!disposed && seq === loadSeq) {
         loading = false;
@@ -277,7 +277,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     try {
       const reply = await ctx.api.call<DiagramScanResponse>('/diagram/scan', { directory, write });
       gitignore = reply.gitignore;
-      ctx.toast('success', reply.written ? `Đã ghi ${reply.written}` : 'Đã quét lại sơ đồ');
+      ctx.toast('success', reply.written ? `Written ${reply.written}` : 'Diagram rescanned');
       await load();
     } catch (error) {
       ctx.toast('error', messageOf(error));
@@ -286,14 +286,14 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
 
   async function askAgent(): Promise<void> {
     const ok = await confirmDialog({
-      title: 'Nhờ agent bổ sung sơ đồ?',
-      message: 'Lời nhắc sẽ THAY nội dung ô nhập hiện tại trong chat (không gửi). Bạn có thể soạn lại trước khi gửi.',
-      confirmLabel: 'Thay ô nhập',
+      title: 'Ask the agent to complete the diagram?',
+      message: 'The prompt will REPLACE the current chat input (it is not sent). You can edit it before sending.',
+      confirmLabel: 'Replace input',
     });
     if (!ok) return;
     try {
       await ctx.host.prompt({ text: agentPrompt(), send: false });
-      ctx.toast('success', 'Đã đặt lời nhắc vào ô nhập. Gửi khi bạn sẵn sàng.');
+      ctx.toast('success', 'The prompt was placed in the input. Send it when you are ready.');
     } catch (error) {
       ctx.toast('error', messageOf(error));
     }
@@ -301,17 +301,17 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
 
   function setInfo(): void {
     if (report === null) {
-      info.textContent = loading ? 'Đang tải sơ đồ…' : '';
+      info.textContent = loading ? 'Loading diagram…' : '';
       notes.textContent = '';
       return;
     }
-    const detectors = report.source.detectors.join(', ') || 'không có';
-    info.textContent = `${report.collections.length} bảng · ${report.relations.length} quan hệ · nguồn: ${detectors}`
-      + `${report.truncated ? ' · đã cắt bớt' : ''}${hasAgent ? ' · có bổ sung của agent' : ''}`
-      + ' · nét liền: khai báo trong code; nét đứt: suy ra từ tên field';
+    const detectors = report.source.detectors.join(', ') || 'none';
+    info.textContent = `${report.collections.length} tables · ${report.relations.length} relations · source: ${detectors}`
+      + `${report.truncated ? ' · truncated' : ''}${hasAgent ? ' · includes the agent\'s additions' : ''}`
+      + ' · solid: declared in code; dashed: inferred from field names';
     const lines: string[] = [];
-    if (gitignore === 'missing') lines.push('Gợi ý: thêm dòng ".openchamber/" vào .gitignore của dự án (Mongo Studio không tự sửa file này).');
-    if (gitignore === 'absent') lines.push('Dự án chưa có .gitignore; nếu dùng git, nên thêm ".openchamber/".');
+    if (gitignore === 'missing') lines.push('Tip: add the line ".openchamber/" to the project\'s .gitignore (Mongo Studio never edits this file).');
+    if (gitignore === 'absent') lines.push('The project has no .gitignore; if you use git, add ".openchamber/".');
     lines.push(...report.warnings.slice(0, 3));
     notes.textContent = lines.join(' ');
   }
@@ -330,7 +330,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     try {
       await ctx.api.call<DiagramLayoutSaveResponse>('/diagram/layout/save', { directory, positions });
     } catch (error) {
-      ctx.toast('error', `Không lưu được vị trí sơ đồ: ${messageOf(error)}`);
+      ctx.toast('error', `Could not save the diagram positions: ${messageOf(error)}`);
     }
   }
 
@@ -455,7 +455,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       const toggle = svgEl('g', { transform: `translate(0 ${HEADER + 6 + card.fields.length * ROW})` }, 'ms-dg-toggle') as SVGGElement;
       toggle.appendChild(svgEl('rect', { x: 0, y: 0, width: card.width, height: ROW, fill: 'transparent' }));
       const label = svgEl('text', { x: 10, y: 13 }, 'ms-dg-more');
-      label.textContent = card.expanded ? 'thu gọn' : `+${card.hidden} more`;
+      label.textContent = card.expanded ? 'collapse' : `+${card.hidden} more`;
       toggle.appendChild(label);
       toggle.addEventListener('pointerdown', (event: PointerEvent) => event.stopPropagation());
       toggle.addEventListener('click', (event: MouseEvent) => {
@@ -554,14 +554,14 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     canvas.replaceChildren();
     scene = null;
     if (visible === null) {
-      canvas.appendChild(emptyNode(`Dự án có ${groupIds.length} bảng. Tìm tên bảng hoặc chọn bảng trung tâm để xem sơ đồ.`));
+      canvas.appendChild(emptyNode(`The project has ${groupIds.length} tables. Search for a table or pick a center table to view the diagram.`));
       return;
     }
     const shown = groups.filter((g) => visible?.has(g.id)).slice(0, MAX_VISIBLE);
     if (shown.length === 0) {
       canvas.appendChild(emptyNode(report.collections.length === 0
-        ? 'Chưa tìm thấy model MongoDB trong mã nguồn.'
-        : 'Không có bảng nào khớp bộ lọc. Xoá lọc hoặc đổi từ khoá.'));
+        ? 'No MongoDB models were found in the source code.'
+        : 'No tables match the filter. Clear the filter or change the keyword.'));
       return;
     }
     drawCanvas(shown, edges, relations, byName, groupOf);
@@ -571,9 +571,9 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     const node = slot('ms-slot');
     const missing = report !== null && report.collections.length === 0;
     canvasHandles.push(mountEmpty(node, {
-      title: missing ? 'Chưa có sơ đồ' : 'Lọc sơ đồ',
+      title: missing ? 'No diagram yet' : 'Filter diagram',
       body,
-      action: missing && !hasAgent ? { label: 'Nhờ agent bổ sung', onClick: () => void askAgent() } : undefined,
+      action: missing && !hasAgent ? { label: 'Ask agent to complete', onClick: () => void askAgent() } : undefined,
     }));
     return node;
   }
@@ -595,7 +595,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       viewKey = key;
       fitView(positions, cards);
     }
-    const svg = svgEl('svg', { viewBox: `${view.x} ${view.y} ${view.w} ${view.h}`, role: 'img', 'aria-label': 'Sơ đồ collection' }, 'ms-diagram-svg') as SVGSVGElement;
+    const svg = svgEl('svg', { viewBox: `${view.x} ${view.y} ${view.w} ${view.h}`, role: 'img', 'aria-label': 'Collection diagram' }, 'ms-diagram-svg') as SVGSVGElement;
     svg.appendChild(markers());
     const nodes = new Map<string, SVGGElement>();
     const sceneEdges = drawEdges(svg, relations, groupOf, new Set(cardById.keys()));

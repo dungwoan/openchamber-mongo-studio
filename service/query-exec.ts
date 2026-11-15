@@ -154,7 +154,7 @@ async function runWrite(db: Db, command: Command): Promise<ExecOutcome> {
       return scalarOutcome(command.kind, { deletedCount: numberOf(r.deletedCount) });
     }
     default:
-      throw new Error(`Lệnh ${command.kind} không phải lệnh ghi`);
+      throw new Error(`${command.kind} is not a write command`);
   }
 }
 

@@ -179,7 +179,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     if (state.loading) {
       const node = slot('ms-slot');
       resultBox.appendChild(node);
-      handles.push(mountSpinner(node, { label: 'Đang chạy truy vấn…' }));
+      handles.push(mountSpinner(node, { label: 'Running query…' }));
       return;
     }
     if (state.error) {
@@ -187,7 +187,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
       return;
     }
     if (state.docs === null) return;
-    statusLine.textContent = `${groupDigits(state.docs.length)} document · ${state.elapsedMs} ms${state.truncatedBySize ? ' · đã cắt bớt vì kích thước' : ''}`;
+    statusLine.textContent = `${groupDigits(state.docs.length)} documents · ${state.elapsedMs} ms${state.truncatedBySize ? ' · truncated by size' : ''}`;
     if (state.docs.length === 0) {
       renderEmpty();
       return;
@@ -200,7 +200,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     resultBox.appendChild(node);
     handles.push(mountBanner(node, {
       tone: 'error',
-      title: error.position ? 'Lỗi cú pháp' : 'Không chạy được truy vấn',
+      title: error.position ? 'Syntax error' : 'Could not run the query',
       body: error.message,
     }));
   };
@@ -210,10 +210,10 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     resultBox.appendChild(node);
     const filtered = state.filter.trim() !== '' || state.sort.trim() !== '';
     const empty = filtered
-      ? { title: 'Không có document khớp', body: 'Thử bỏ hoặc nới filter, rồi nhấn Run.' }
+      ? { title: 'No matching documents', body: 'Try removing or relaxing the filter, then press Run.' }
       : readOnly()
-        ? { title: 'Collection trống', body: 'Connection đang ở chế độ Read-only nên không thêm được document.' }
-        : { title: 'Collection trống', body: 'Nhấn Insert để thêm document đầu tiên.' };
+        ? { title: 'Empty collection', body: 'This connection is Read-only, so documents cannot be added.' }
+        : { title: 'Empty collection', body: 'Press Insert to add the first document.' };
     handles.push(mountEmpty(node, empty));
   };
 
@@ -243,7 +243,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     if (resetPage) state.page = 0;
     const parsed = Number(state.limit);
     if (!Number.isInteger(parsed) || parsed < 1 || parsed > PAGE_MAX) {
-      state.error = new ApiError(`Limit phải là số nguyên từ 1 đến ${PAGE_MAX}`, 'BAD_LIMIT', 400);
+      state.error = new ApiError(`Limit must be an integer from 1 to ${PAGE_MAX}`, 'BAD_LIMIT', 400);
       state.docs = null;
       renderResults();
       return;
@@ -268,7 +268,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
       state.elapsedMs = reply.elapsedMs;
       state.truncatedBySize = reply.truncatedBySize;
     } catch (error) {
-      state.error = error instanceof ApiError ? error : new ApiError('Không chạy được truy vấn', 'UNKNOWN', 0);
+      state.error = error instanceof ApiError ? error : new ApiError('Could not run the query', 'UNKNOWN', 0);
       state.docs = null;
     } finally {
       state.loading = false;
@@ -285,14 +285,14 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     indexBox.replaceChildren();
     const node = slot('ms-slot');
     indexBox.appendChild(node);
-    handles.push(mountSpinner(node, { label: 'Đang tải index…' }));
+    handles.push(mountSpinner(node, { label: 'Loading indexes…' }));
     try {
       const reply = await ctx.api.call<IndexesResponse>('/collection/indexes', { connectionId, database, collection });
       state.indexes = reply.indexes;
       state.indexError = null;
     } catch (error) {
       state.indexes = null;
-      state.indexError = error instanceof Error ? error.message : 'Không tải được index';
+      state.indexError = error instanceof Error ? error.message : 'Could not load indexes';
     }
     renderIndexes();
   };
@@ -302,7 +302,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     if (state.indexError) {
       const node = slot('ms-slot ms-slot-banner');
       indexBox.appendChild(node);
-      handles.push(mountBanner(node, { tone: 'error', title: 'Không tải được index', body: state.indexError }));
+      handles.push(mountBanner(node, { tone: 'error', title: 'Could not load indexes', body: state.indexError }));
       return;
     }
     const indexes = state.indexes ?? [];
@@ -310,7 +310,7 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     indexBox.appendChild(node);
     handles.push(mountList(node, {
       ariaLabel: 'Indexes',
-      emptyText: 'Collection này chưa có index.',
+      emptyText: 'This collection has no indexes yet.',
       items: indexes.map((index) => ({
         id: String(index.name),
         title: String(index.name),
@@ -325,13 +325,13 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
     openDocumentDialog({
       title: `Edit document · _id ${idText(doc)}`,
       initial: prettyJson(doc),
-      confirmTitle: 'Lưu thay đổi?',
-      confirmMessage: `Thay toàn bộ document có _id ${idText(doc)} bằng nội dung mới. Không hoàn tác được.`,
+      confirmTitle: 'Save changes?',
+      confirmMessage: `Replace the whole document with _id ${idText(doc)} with the new content. This cannot be undone.`,
       save: async (text) => {
         await ctx.api.call('/documents/replace', { connectionId, database, collection, id: doc._id, document: text });
       },
       onSaved: () => {
-        ctx.toast('success', 'Đã lưu document');
+        ctx.toast('success', 'Document saved');
         void run(false);
       },
     });
@@ -339,18 +339,18 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
 
   const removeDocument = async (doc: Record<string, unknown>): Promise<void> => {
     const ok = await confirmDialog({
-      title: 'Xoá document?',
-      message: `Xoá document có _id ${idText(doc)}. Không hoàn tác được.`,
+      title: 'Delete document?',
+      message: `Delete the document with _id ${idText(doc)}. This cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
     if (!ok) return;
     try {
       await ctx.api.call('/documents/delete', { connectionId, database, collection, id: doc._id });
-      ctx.toast('success', 'Đã xoá document');
+      ctx.toast('success', 'Document deleted');
       await run(false);
     } catch (error) {
-      ctx.toast('error', error instanceof Error ? error.message : 'Không xoá được document');
+      ctx.toast('error', error instanceof Error ? error.message : 'Could not delete the document');
     }
   };
 
@@ -362,13 +362,13 @@ export function createCollectionView(ctx: Ctx, connectionId: string, database: s
       openDocumentDialog({
         title: `Insert document · ${database}.${collection}`,
         initial: '{\n  \n}',
-        confirmTitle: 'Thêm document?',
-        confirmMessage: `Thêm một document mới vào ${database}.${collection}.`,
+        confirmTitle: 'Add document?',
+        confirmMessage: `Add a new document to ${database}.${collection}.`,
         save: async (text) => {
           await ctx.api.call('/documents/insert', { connectionId, database, collection, document: text });
         },
         onSaved: () => {
-          ctx.toast('success', 'Đã thêm document');
+          ctx.toast('success', 'Document added');
           void run(true);
         },
       });

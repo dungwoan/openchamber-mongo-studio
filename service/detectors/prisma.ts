@@ -55,7 +55,7 @@ export const prismaDetector: Detector = {
       const datasource = /datasource\s+\w+\s*\{/.exec(file.text);
       const provider = datasource ? /provider\s*=\s*"(\w+)"/.exec(insideOf(file.text, datasource.index + datasource[0].length - 1))?.[1] : undefined;
       if (provider !== 'mongodb') {
-        draft.warnings.push(`prisma: chỉ hỗ trợ provider "mongodb", bỏ qua ${file.rel}`);
+        draft.warnings.push(`prisma: only the "mongodb" provider is supported, skipped ${file.rel}`);
         continue;
       }
       for (const match of file.text.matchAll(/model\s+(\w+)\s*\{/g)) {

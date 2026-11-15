@@ -26,7 +26,7 @@ export class QuerySyntaxError extends Error {
     const before = source.slice(0, offset);
     const line = before.split('\n').length;
     const column = offset - before.lastIndexOf('\n');
-    super(`Lỗi cú pháp tại dòng ${line}, cột ${column}: ${message}`);
+    super(`Syntax error at line ${line}, column ${column}: ${message}`);
     this.name = 'QuerySyntaxError';
     this.offset = offset;
     this.line = line;
@@ -153,7 +153,7 @@ function skipLineComment(source: string, start: number): number {
 
 function skipBlockComment(source: string, start: number): number {
   const close = source.indexOf('*/', start + 2);
-  if (close === -1) throw new QuerySyntaxError('Comment /* chưa đóng', start, source);
+  if (close === -1) throw new QuerySyntaxError('Unclosed comment /*', start, source);
   return close + 2;
 }
 
@@ -166,7 +166,7 @@ function readToken(source: string, start: number): Token {
   }
   if (/[A-Za-z_$]/.test(ch)) return readMatch(source, start, IDENT_RE, 'ident');
   if (PUNCTUATION.includes(ch)) return { kind: 'punct', value: ch, pos: start, end: start + 1 };
-  throw new QuerySyntaxError(`Ký tự không hợp lệ '${ch}'`, start, source);
+  throw new QuerySyntaxError(`Invalid character '${ch}'`, start, source);
 }
 
 function readMatch(source: string, start: number, re: RegExp, kind: TokenKind): Token {
@@ -174,7 +174,7 @@ function readMatch(source: string, start: number, re: RegExp, kind: TokenKind): 
   const match = re.exec(source);
   const text = match ? match[0] : '';
   if (!match || text.length === 0) {
-    throw new QuerySyntaxError('Không đọc được nội dung', start, source);
+    throw new QuerySyntaxError('Could not read the content', start, source);
   }
   return { kind, value: text, pos: start, end: start + text.length };
 }
@@ -196,19 +196,19 @@ function readString(source: string, start: number): Token {
       i++;
     }
   }
-  throw new QuerySyntaxError('Chuỗi chưa đóng dấu nháy', start, source);
+  throw new QuerySyntaxError('Unclosed string', start, source);
 }
 
 function readEscape(source: string, slash: number): { text: string; next: number } {
   const code = source[slash + 1];
-  if (code === undefined) throw new QuerySyntaxError('Dấu \\ ở cuối chuỗi', slash, source);
+  if (code === undefined) throw new QuerySyntaxError('Backslash at the end of the string', slash, source);
   const simple: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', '0': '\0' };
   if (code in simple) return { text: simple[code] as string, next: slash + 2 };
   if (code === 'x' || code === 'u') {
     const width = code === 'x' ? 2 : 4;
     const hex = source.slice(slash + 2, slash + 2 + width);
     if (!new RegExp(`^[0-9a-fA-F]{${width}}$`).test(hex)) {
-      throw new QuerySyntaxError(`Ký tự thoát \\${code} không hợp lệ`, slash, source);
+      throw new QuerySyntaxError(`Invalid escape sequence \\${code}`, slash, source);
     }
     return { text: String.fromCharCode(parseInt(hex, 16)), next: slash + 2 + width };
   }
@@ -233,7 +233,7 @@ function readRegex(source: string, start: number): Token {
     pattern += ch;
     i++;
   }
-  throw new QuerySyntaxError("Regex chưa đóng bằng '/'", start, source);
+  throw new QuerySyntaxError("Regex is not closed with '/'", start, source);
 }
 
 function readRegexFlags(source: string, start: number, pattern: string, from: number): Token {
@@ -242,7 +242,7 @@ function readRegexFlags(source: string, start: number, pattern: string, from: nu
   const flags = source.slice(from, end);
   for (const flag of flags) {
     if (!REGEX_FLAGS.includes(flag)) {
-      throw new QuerySyntaxError(`Cờ regex '${flag}' không được hỗ trợ (dùng i, m, s, x, u)`, start, source);
+      throw new QuerySyntaxError(`Regex flag '${flag}' is not supported (use i, m, s, x, u)`, start, source);
     }
   }
   return { kind: 'regex', value: pattern, flags, pos: start, end };
@@ -263,7 +263,7 @@ function isPlainObject(value: unknown): value is Obj {
 }
 
 function describeToken(token: Token): string {
-  if (token.kind === 'eof') return 'hết lệnh';
+  if (token.kind === 'eof') return 'end of command';
   if (token.kind === 'string') return `"${token.value}"`;
   if (token.kind === 'regex') return `/${token.value}/`;
   return `'${token.value}'`;
@@ -287,7 +287,7 @@ class Parser {
       const command = this.parseCommand();
       const last = this.tokens[this.index - 1] as Token;
       statements.push({ start: first.pos, end: last.end, command });
-      if (this.peek().kind !== 'eof') this.expectPunct(';', 'sau mỗi lệnh');
+      if (this.peek().kind !== 'eof') this.expectPunct(';', 'after a command');
     }
     return statements;
   }
@@ -296,7 +296,7 @@ class Parser {
   parseSingleValue(): unknown {
     const value = this.parseValue(1);
     this.acceptPunct(';');
-    if (this.peek().kind !== 'eof') this.fail(`Thừa nội dung ${describeToken(this.peek())}`);
+    if (this.peek().kind !== 'eof') this.fail(`Unexpected content ${describeToken(this.peek())}`);
     return value;
   }
 
@@ -324,12 +324,12 @@ class Parser {
   private expectPunct(value: string, context = ''): void {
     if (this.acceptPunct(value)) return;
     const where = context ? ` ${context}` : '';
-    this.fail(`Cần '${value}'${where}, nhưng gặp ${describeToken(this.peek())}`);
+    this.fail(`Expected '${value}'${where}, but found ${describeToken(this.peek())}`);
   }
 
   private expectIdent(context: string): Token {
     const token = this.peek();
-    if (token.kind !== 'ident') this.fail(`Cần tên ${context}, nhưng gặp ${describeToken(token)}`);
+    if (token.kind !== 'ident') this.fail(`Expected a ${context} name, but found ${describeToken(token)}`);
     return this.next();
   }
 
@@ -340,7 +340,7 @@ class Parser {
   private parseCommand(): Command {
     const head = this.peek();
     if (head.kind !== 'ident' || head.value !== 'db') {
-      this.fail("Lệnh phải bắt đầu bằng 'db', ví dụ db.users.find({})");
+      this.fail("A command must start with 'db', for example db.users.find({})");
     }
     this.next();
     this.expectPunct('.', 'sau db');
@@ -353,21 +353,21 @@ class Parser {
     if (name.value === 'getCollection') {
       const args = this.parseArgs();
       if (args.length !== 1 || typeof args[0] !== 'string') {
-        this.fail('db.getCollection(...) cần đúng một chuỗi tên collection', name.pos);
+        this.fail('db.getCollection(...) needs exactly one collection name string', name.pos);
       }
-      if (!this.isPunct('.')) this.fail('Thiếu hàm sau db.getCollection(...), ví dụ .find({})', name.pos);
+      if (!this.isPunct('.')) this.fail('Missing a method after db.getCollection(...), for example .find({})', name.pos);
       this.next();
-      const method = this.expectIdent('hàm collection');
+      const method = this.expectIdent('collection method');
       return this.finishCall(args[0] as string, method);
     }
     if (!DB_METHODS.includes(name.value)) {
       this.fail(
-        `Không hỗ trợ 'db.${name.value}()'. Hỗ trợ: getCollectionNames(), stats(), getCollection("tên")`,
+        `Unsupported 'db.${name.value}()'. Supported: getCollectionNames(), stats(), getCollection("name")`,
         name.pos,
       );
     }
-    if (this.parseArgs().length > 0) this.fail(`db.${name.value}() không nhận tham số`, name.pos);
-    if (this.isPunct('.')) this.fail(`Không nối thêm hàm sau db.${name.value}()`, this.peek().pos);
+    if (this.parseArgs().length > 0) this.fail(`db.${name.value}() takes no arguments`, name.pos);
+    if (this.isPunct('.')) this.fail(`Cannot chain another method after db.${name.value}()`, this.peek().pos);
     return { kind: name.value === 'stats' ? 'stats' : 'collectionNames' };
   }
 
@@ -376,18 +376,18 @@ class Parser {
     let collection = first;
     while (this.isPunct('.')) {
       this.next();
-      const segment = this.expectIdent('sau dấu chấm');
+      const segment = this.expectIdent('after the dot');
       if (this.isPunct('(')) return this.finishCall(collection, segment);
       collection += `.${segment.value}`;
     }
-    this.fail(`Thiếu hàm sau 'db.${collection}', ví dụ db.${collection}.find({})`);
+    this.fail(`Missing a method after 'db.${collection}', for example db.${collection}.find({})`);
   }
 
   /** Đọc tham số của hàm rồi các hàm nối tiếp (.sort, .limit...) và kiểm tra. */
   private finishCall(collection: string, method: Token): Command {
     if (!COLLECTION_METHODS[method.value]) {
       this.fail(
-        `Không hỗ trợ 'db.${collection}.${method.value}()'. Hỗ trợ: ${Object.keys(COLLECTION_METHODS).join(', ')}`,
+        `Unsupported 'db.${collection}.${method.value}()'. Supported: ${Object.keys(COLLECTION_METHODS).join(', ')}`,
         method.pos,
       );
     }
@@ -395,7 +395,7 @@ class Parser {
     const chain: ChainCall[] = [];
     while (this.isPunct('.')) {
       this.next();
-      const callName = this.expectIdent('hàm nối tiếp');
+      const callName = this.expectIdent('chained method');
       chain.push({ method: callName.value, args: this.parseArgs(), offset: callName.pos });
     }
     return buildCommand(collection, method, args, chain, (message, offset) => this.fail(message, offset));
@@ -407,7 +407,7 @@ class Parser {
     while (!this.acceptPunct(')')) {
       args.push(this.parseValue(1));
       if (!this.acceptPunct(',')) {
-        this.expectPunct(')', 'để đóng tham số');
+        this.expectPunct(')', 'to close the arguments');
         break;
       }
     }
@@ -415,7 +415,7 @@ class Parser {
   }
 
   private parseValue(depth: number): unknown {
-    if (depth > MAX_DEPTH) this.fail(`Dữ liệu lồng quá sâu (tối đa ${MAX_DEPTH} cấp)`);
+    if (depth > MAX_DEPTH) this.fail(`Data is nested too deeply (at most ${MAX_DEPTH} levels)`);
     const token = this.peek();
     if (token.kind === 'string') return this.next().value;
     if (token.kind === 'number') return numberValue(this.next().value);
@@ -425,7 +425,7 @@ class Parser {
     }
     if (token.kind === 'punct') return this.parsePunctValue(depth);
     if (token.kind === 'ident') return this.parseIdentValue();
-    return this.fail(`Thiếu giá trị, gặp ${describeToken(token)}`);
+    return this.fail(`Missing a value, found ${describeToken(token)}`);
   }
 
   private parsePunctValue(depth: number): unknown {
@@ -435,7 +435,7 @@ class Parser {
       this.next();
       return -numberValue(this.next().value);
     }
-    return this.fail(`Giá trị không hợp lệ ${describeToken(this.peek())}`);
+    return this.fail(`Invalid value ${describeToken(this.peek())}`);
   }
 
   private parseIdentValue(): unknown {
@@ -451,19 +451,19 @@ class Parser {
     if (token.value === 'new') {
       this.next();
       const ctor = this.expectIdent('sau new');
-      if (!CONSTRUCTORS.includes(ctor.value)) this.fail(`Không hỗ trợ 'new ${ctor.value}()'`, ctor.pos);
+      if (!CONSTRUCTORS.includes(ctor.value)) this.fail(`Unsupported 'new ${ctor.value}()'`, ctor.pos);
       return this.parseConstructor(ctor.value, ctor.pos);
     }
     if (CONSTRUCTORS.includes(token.value) && this.isPunct('(', 1)) {
       this.next();
-      if (token.value === 'Date') this.fail("Dùng 'new Date(...)' hoặc ISODate(...)", token.pos);
+      if (token.value === 'Date') this.fail("Use 'new Date(...)' or ISODate(...)", token.pos);
       return this.parseConstructor(token.value, token.pos);
     }
     if (this.isPunct('(', 1)) {
-      this.fail(`Không hỗ trợ hàm '${token.value}()'. Hỗ trợ: ${CONSTRUCTORS.join(', ')}`);
+      this.fail(`Unsupported function '${token.value}()'. Supported: ${CONSTRUCTORS.join(', ')}`);
     }
     return this.fail(
-      `Giá trị không hợp lệ '${token.value}'. Dùng chuỗi "...", số, true, false, null hoặc hàm dựng BSON`,
+      `Invalid value '${token.value}'. Use a "..." string, a number, true, false, null or a BSON constructor`,
     );
   }
 
@@ -479,11 +479,11 @@ class Parser {
     while (!this.acceptPunct('}')) {
       const keyToken = this.next();
       const key = this.objectKey(keyToken);
-      if (Object.prototype.hasOwnProperty.call(obj, key)) this.fail(`Khoá '${key}' bị lặp`, keyToken.pos);
-      this.expectPunct(':', 'sau tên khoá');
+      if (Object.prototype.hasOwnProperty.call(obj, key)) this.fail(`Key '${key}' is repeated`, keyToken.pos);
+      this.expectPunct(':', 'after the key name');
       defineKey(obj, key, this.parseValue(depth + 1));
       if (!this.acceptPunct(',')) {
-        this.expectPunct('}', 'để đóng đối tượng');
+        this.expectPunct('}', 'to close the object');
         break;
       }
     }
@@ -492,7 +492,7 @@ class Parser {
 
   private objectKey(token: Token): string {
     if (token.kind === 'ident' || token.kind === 'string' || token.kind === 'number') return token.value;
-    return this.fail(`Khoá phải là tên, chuỗi hoặc số, gặp ${describeToken(token)}`, token.pos);
+    return this.fail(`A key must be a name, string or number, found ${describeToken(token)}`, token.pos);
   }
 
   private parseArray(depth: number): unknown[] {
@@ -501,7 +501,7 @@ class Parser {
     while (!this.acceptPunct(']')) {
       items.push(this.parseValue(depth + 1));
       if (!this.acceptPunct(',')) {
-        this.expectPunct(']', 'để đóng mảng');
+        this.expectPunct(']', 'to close the array');
         break;
       }
     }
@@ -515,12 +515,12 @@ type Failer = (message: string, offset: number) => never;
 function buildConstructor(name: string, args: unknown[], fail: (message: string) => never): unknown {
   const [arg] = args;
   const expectArity = (min: number, max: number): void => {
-    if (args.length < min || args.length > max) fail(`${name}() nhận ${min === max ? min : `${min}-${max}`} tham số`);
+    if (args.length < min || args.length > max) fail(`${name}() takes ${min === max ? min : `${min}-${max}`} argument(s)`);
   };
   switch (name) {
     case 'ObjectId':
       expectArity(1, 1);
-      if (typeof arg !== 'string' || !/^[0-9a-fA-F]{24}$/.test(arg)) fail('ObjectId cần chuỗi 24 ký tự hex');
+      if (typeof arg !== 'string' || !/^[0-9a-fA-F]{24}$/.test(arg)) fail('ObjectId needs a 24-character hex string');
       return { $oid: (arg as string).toLowerCase() };
     case 'ISODate':
     case 'Date':
@@ -528,42 +528,42 @@ function buildConstructor(name: string, args: unknown[], fail: (message: string)
       return { $date: dateArgument(arg, args.length, fail) };
     case 'NumberLong':
       expectArity(1, 1);
-      if (typeof arg === 'number' && !Number.isSafeInteger(arg)) fail('NumberLong(số) cần số nguyên an toàn; dùng chuỗi cho số lớn');
-      if (typeof arg === 'string' && !/^[+-]?\d+$/.test(arg)) fail('NumberLong cần chuỗi số nguyên');
-      if (typeof arg !== 'string' && typeof arg !== 'number') fail('NumberLong cần chuỗi hoặc số');
+      if (typeof arg === 'number' && !Number.isSafeInteger(arg)) fail('NumberLong(number) needs a safe integer; use a string for large numbers');
+      if (typeof arg === 'string' && !/^[+-]?\d+$/.test(arg)) fail('NumberLong needs an integer string');
+      if (typeof arg !== 'string' && typeof arg !== 'number') fail('NumberLong needs a string or a number');
       return { $numberLong: String(arg) };
     case 'NumberInt':
       expectArity(1, 1);
       if (typeof arg !== 'number' || !Number.isInteger(arg) || arg < -2147483648 || arg > 2147483647) {
-        fail('NumberInt cần số nguyên trong khoảng 32-bit');
+        fail('NumberInt needs an integer in the 32-bit range');
       }
       return { $numberInt: String(arg) };
     case 'NumberDecimal':
       expectArity(1, 1);
       if (typeof arg !== 'string' || !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(arg)) {
-        fail('NumberDecimal cần chuỗi số thập phân, ví dụ "12.50"');
+        fail('NumberDecimal needs a decimal string, for example "12.50"');
       }
       return { $numberDecimal: arg };
     case 'UUID':
       expectArity(1, 1);
       return { $uuid: uuidArgument(arg, fail) };
     default:
-      return fail(`Không hỗ trợ ${name}()`);
+      return fail(`Unsupported ${name}()`);
   }
 }
 
 function dateArgument(arg: unknown, count: number, fail: (message: string) => never): string | number {
   if (count === 0) return new Date().toISOString();
   if (typeof arg === 'number' && Number.isFinite(arg)) return arg;
-  if (typeof arg !== 'string') fail('Ngày cần chuỗi ISO 8601 hoặc số mili giây');
+  if (typeof arg !== 'string') fail('A date needs an ISO 8601 string or a number of milliseconds');
   const time = Date.parse(arg as string);
-  if (Number.isNaN(time)) fail(`Ngày không hợp lệ: "${arg}"`);
+  if (Number.isNaN(time)) fail(`Invalid date: "${arg}"`);
   return new Date(time).toISOString();
 }
 
 function uuidArgument(arg: unknown, fail: (message: string) => never): string {
   const hex = typeof arg === 'string' ? arg.replace(/-/g, '') : '';
-  if (!/^[0-9a-fA-F]{32}$/.test(hex)) fail('UUID cần chuỗi 32 ký tự hex (có thể có dấu -)');
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) fail('UUID needs a 32-character hex string (dashes allowed)');
   const lower = hex.toLowerCase();
   return `${lower.slice(0, 8)}-${lower.slice(8, 12)}-${lower.slice(12, 16)}-${lower.slice(16, 20)}-${lower.slice(20)}`;
 }
@@ -576,24 +576,24 @@ function countArgument(value: unknown, method: string, offset: number, fail: Fai
     if (typeof wrapped === 'string') number = Number(wrapped);
   }
   if (typeof number !== 'number' || !Number.isInteger(number) || number < 0) {
-    fail(`${method}() cần số nguyên không âm`, offset);
+    fail(`${method}() needs a non-negative integer`, offset);
   }
   return number as number;
 }
 
 function expectObject(value: unknown, what: string, offset: number, fail: Failer): Obj {
-  if (!isPlainObject(value)) fail(`${what} phải là đối tượng {...}`, offset);
+  if (!isPlainObject(value)) fail(`${what} must be an object {...}`, offset);
   return value as Obj;
 }
 
 function expectStageList(value: unknown, offset: number, fail: Failer): Obj[] {
-  if (!Array.isArray(value)) fail('aggregate cần một mảng các stage: aggregate([{ $match: {...} }])', offset);
-  return (value as unknown[]).map((stage) => expectObject(stage, 'Mỗi stage', offset, fail));
+  if (!Array.isArray(value)) fail('aggregate needs an array of stages: aggregate([{ $match: {...} }])', offset);
+  return (value as unknown[]).map((stage) => expectObject(stage, 'Each stage', offset, fail));
 }
 
 /** Gán giá trị tuỳ chọn; nếu đối số không có thì bỏ qua. */
 function optionalObject(args: unknown[], index: number, offset: number, fail: Failer): Obj | undefined {
-  return args.length > index ? expectObject(args[index], 'Tham số', offset, fail) : undefined;
+  return args.length > index ? expectObject(args[index], 'Argument', offset, fail) : undefined;
 }
 
 function buildCommand(
@@ -606,12 +606,12 @@ function buildCommand(
   const spec = COLLECTION_METHODS[method.value];
   if (!spec) {
     fail(
-      `Không hỗ trợ 'db.${collection}.${method.value}()'. Hỗ trợ: ${Object.keys(COLLECTION_METHODS).join(', ')}`,
+      `Unsupported 'db.${collection}.${method.value}()'. Supported: ${Object.keys(COLLECTION_METHODS).join(', ')}`,
       method.pos,
     );
   }
   if (args.length < spec.min || args.length > spec.max) {
-    fail(`${method.value}() nhận ${spec.min === spec.max ? spec.min : `${spec.min}-${spec.max}`} tham số`, method.pos);
+    fail(`${method.value}() takes ${spec.min === spec.max ? spec.min : `${spec.min}-${spec.max}`} argument(s)`, method.pos);
   }
   const base = buildBaseCommand(collection, method, args, fail);
   if (base.kind === 'find') return applyFindChain(base, chain, fail);
@@ -622,7 +622,7 @@ function buildCommand(
 
 function rejectChain(chain: ChainCall[], method: string, fail: Failer): void {
   const first = chain[0];
-  if (first) fail(`Không nối '.${first.method}()' vào ${method}()`, first.offset);
+  if (first) fail(`Cannot chain '.${first.method}()' onto ${method}()`, first.offset);
 }
 
 function buildBaseCommand(collection: string, method: Token, args: unknown[], fail: Failer): Command {
@@ -637,7 +637,7 @@ function buildBaseCommand(collection: string, method: Token, args: unknown[], fa
     case 'countDocuments':
       return { kind: 'count', collection, filter: filterAt(0) };
     case 'distinct':
-      if (typeof args[0] !== 'string') fail('distinct() cần tên field dạng chuỗi đứng đầu', offset);
+      if (typeof args[0] !== 'string') fail('distinct() needs a field name string as its first argument', offset);
       return { kind: 'distinct', collection, field: args[0] as string, filter: filterAt(1) };
     case 'aggregate':
       return buildAggregate(collection, args, offset, fail);
@@ -657,9 +657,9 @@ function buildAggregate(collection: string, args: unknown[], offset: number, fai
   const stages = expectStageList(args[0], offset, fail);
   const options: { allowDiskUse?: boolean; maxTimeMS?: number } = {};
   if (args.length > 1) {
-    const raw = expectObject(args[1], 'Tuỳ chọn aggregate', offset, fail);
+    const raw = expectObject(args[1], 'aggregate option', offset, fail);
     for (const key of Object.keys(raw)) {
-      if (!AGGREGATE_OPTIONS.has(key)) fail(`Tuỳ chọn aggregate '${key}' không được hỗ trợ (allowDiskUse, maxTimeMS)`, offset);
+      if (!AGGREGATE_OPTIONS.has(key)) fail(`aggregate option '${key}' is not supported (allowDiskUse, maxTimeMS)`, offset);
     }
     if (raw.allowDiskUse !== undefined) options.allowDiskUse = raw.allowDiskUse === true;
     if (raw.maxTimeMS !== undefined) options.maxTimeMS = countArgument(raw.maxTimeMS, 'maxTimeMS', offset, fail);
@@ -668,8 +668,8 @@ function buildAggregate(collection: string, args: unknown[], offset: number, fai
 }
 
 function buildInsertMany(collection: string, value: unknown, offset: number, fail: Failer): Command {
-  if (!Array.isArray(value) || value.length === 0) fail('insertMany() cần một mảng document, không rỗng', offset);
-  const documents = (value as unknown[]).map((doc) => expectObject(doc, 'Mỗi document', offset, fail));
+  if (!Array.isArray(value) || value.length === 0) fail('insertMany() needs a non-empty array of documents', offset);
+  const documents = (value as unknown[]).map((doc) => expectObject(doc, 'Each document', offset, fail));
   return { kind: 'insertMany', collection, documents };
 }
 
@@ -678,7 +678,7 @@ function buildUpdate(kind: string, collection: string, args: unknown[], offset: 
   const update = expectObject(args[1], 'Update', offset, fail);
   const keys = Object.keys(update);
   if (keys.length === 0 || keys.some((key) => !key.startsWith('$'))) {
-    fail('Update phải dùng toán tử, ví dụ { $set: { field: giá trị } }', offset);
+    fail('An update must use an operator, for example { $set: { field: value } }', offset);
   }
   return { kind: kind as 'updateOne' | 'updateMany', collection, filter, update };
 }
@@ -688,20 +688,20 @@ function applyFindChain(command: FindCommand, chain: ChainCall[], fail: Failer):
   const seen = new Set<string>();
   const result: FindCommand = { ...command };
   for (const call of chain) {
-    if (seen.has(call.method)) fail(`Hàm '.${call.method}()' bị lặp`, call.offset);
+    if (seen.has(call.method)) fail(`Method '.${call.method}()' is repeated`, call.offset);
     seen.add(call.method);
     if (call.method === 'toArray') {
-      if (call.args.length > 0) fail('toArray() không nhận tham số', call.offset);
+      if (call.args.length > 0) fail('toArray() takes no arguments', call.offset);
     } else if (call.method === 'sort') {
-      if (call.args.length !== 1) fail('sort() cần đúng một đối tượng', call.offset);
+      if (call.args.length !== 1) fail('sort() needs exactly one object', call.offset);
       result.sort = expectObject(call.args[0], 'sort()', call.offset, fail);
     } else if (call.method === 'skip' || call.method === 'limit') {
-      if (call.args.length !== 1) fail(`${call.method}() cần đúng một số`, call.offset);
+      if (call.args.length !== 1) fail(`${call.method}() needs exactly one number`, call.offset);
       const count = countArgument(call.args[0], call.method, call.offset, fail);
       if (call.method === 'skip') result.skip = count;
       else result.limit = count;
     } else {
-      fail(`Không hỗ trợ '.${call.method}()' sau find(). Hỗ trợ: sort, skip, limit, toArray`, call.offset);
+      fail(`Unsupported '.${call.method}()' after find(). Supported: sort, skip, limit, toArray`, call.offset);
     }
   }
   return result;
@@ -736,7 +736,7 @@ export function parseQuery(text: string): Statement[] {
  *   QuerySyntaxError: Cú pháp sai hoặc chuỗi rỗng.
  */
 export function parseLiteral(text: string): unknown {
-  if (text.trim() === '') throw new QuerySyntaxError('Chưa nhập nội dung', 0, text);
+  if (text.trim() === '') throw new QuerySyntaxError('Nothing entered yet', 0, text);
   return new Parser(tokenize(text), text).parseSingleValue();
 }
 

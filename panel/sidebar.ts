@@ -80,7 +80,7 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
 
   const renderCollections = (connection: ConnectionView, database: string, parent: HTMLElement): void => {
     const key = dbKey(connection.id, database);
-    if (tree.loading.has(key)) parent.appendChild(h('div', 'ms-tree-note ms-muted', 'Đang tải collection…'));
+    if (tree.loading.has(key)) parent.appendChild(h('div', 'ms-tree-note ms-muted', 'Loading collections…'));
     const error = tree.errors.get(key);
     if (error) parent.appendChild(errorNote(error));
     const collections: CollectionInfo[] = tree.collections.get(key) ?? [];
@@ -103,7 +103,7 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
   };
 
   const renderDatabases = (connection: ConnectionView, parent: HTMLElement): void => {
-    if (tree.loading.has(connection.id)) parent.appendChild(h('div', 'ms-tree-note ms-muted', 'Đang tải database…'));
+    if (tree.loading.has(connection.id)) parent.appendChild(h('div', 'ms-tree-note ms-muted', 'Loading databases…'));
     const error = tree.errors.get(connection.id);
     if (error) parent.appendChild(errorNote(error));
     const databases: DatabaseInfo[] = tree.databases.get(connection.id) ?? [];
@@ -139,8 +139,8 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
     row.appendChild(name);
     if (connection.readOnly) row.appendChild(h('span', 'ms-badge-ro', 'read-only'));
     if (connection.source === 'project-file') {
-      row.appendChild(h('span', 'ms-tree-meta', 'từ dự án'));
-      row.title = `Lấy từ ${connection.sourceFile ?? 'file cấu hình'} của dự án. Không lưu trên máy này.`;
+      row.appendChild(h('span', 'ms-tree-meta', 'from project'));
+      row.title = `Taken from ${connection.sourceFile ?? 'config file'} in the project. Not stored on this machine.`;
     }
     const items: Parameters<typeof mountMenu>[1]['items'] = connection.source === 'project-file'
       ? [{ id: 'disconnect', label: 'Disconnect', disabled: !connection.connected }]
@@ -168,7 +168,7 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
     disposeAll(handles);
     list.replaceChildren();
     if (tree.connectionsError) {
-      list.appendChild(bannerSlot(handles, 'error', 'Không tải được danh sách connection', tree.connectionsError, 'Thử lại', () => {
+      list.appendChild(bannerSlot(handles, 'error', 'Could not load the connection list', tree.connectionsError, 'Retry', () => {
         void loadConnections(ctx.api);
       }));
       return;
@@ -177,8 +177,8 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
       const node = slot('ms-slot');
       list.appendChild(node);
       handles.push(mountEmpty(node, {
-        title: 'Chưa có connection',
-        body: 'Nhấn Add connection và dán URI MongoDB của bạn. URI được lưu trên máy này, không gửi đi đâu khác.',
+        title: 'No connections yet',
+        body: 'Press Add connection and paste your MongoDB URI. The URI is stored on this machine and is not sent anywhere else.',
         action: { label: 'Add connection', onClick: ctx.addConnection },
       }));
       return;

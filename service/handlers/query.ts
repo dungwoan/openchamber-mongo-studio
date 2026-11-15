@@ -24,15 +24,15 @@ export async function runRoute(body: Body): Promise<QueryResponse> {
   const confirmWrite = optionalBoolean(body, 'confirmWrite', false);
 
   const statements = parseQuery(text);
-  if (statements.length === 0) throw badRequest('Chưa có lệnh nào. Ví dụ: db.users.find({}).limit(10)');
+  if (statements.length === 0) throw badRequest('No command yet. Example: db.users.find({}).limit(10)');
   const index = pickStatement(statements, cursor);
   const statement = statements[index];
-  if (!statement) throw badRequest('Không xác định được lệnh cần chạy');
+  if (!statement) throw badRequest('Could not determine the command to run');
 
   const write = isWriteCommand(statement.command);
   if (write) assertWritable(record);
   if (write && !confirmWrite) {
-    throw new HttpError(409, 'CONFIRM_REQUIRED', `Lệnh ghi "${statement.command.kind}" sẽ thay đổi dữ liệu. Xác nhận để chạy.`);
+    throw new HttpError(409, 'CONFIRM_REQUIRED', `The write command "${statement.command.kind}" will change data. Confirm to run it.`);
   }
 
   const started = Date.now();
@@ -69,7 +69,7 @@ export async function historyAddRoute(body: Body): Promise<{ ok: true }> {
   const connectionId = requireString(body, 'connectionId', 64);
   const database = requireString(body, 'database', 255);
   const exists = (await findConnection(connectionId)) !== undefined;
-  if (!exists) throw badRequest('Connection không còn tồn tại');
+  if (!exists) throw badRequest('Connection no longer exists');
   await addHistory({ text, connectionId, database, at: Date.now() });
   return { ok: true };
 }

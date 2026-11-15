@@ -28,17 +28,17 @@ export type Api = {
 
 /** Thông báo cho các mã lỗi do chính OpenChamber trả về. */
 const HOST_MESSAGES: Record<string, string> = {
-  NO_SERVICE: 'Service của Mongo Studio chưa được bật. Mở Settings → Extensions, bật Mongo Studio và cho phép service, rồi thử lại.',
-  DISABLED: 'Mongo Studio đang tạm dừng trong Settings → Extensions. Bật lại để tiếp tục.',
-  SERVICE_FAILED: 'Service của Mongo Studio không khởi động được. Xem log của OpenChamber, rồi thử lại.',
-  REQUEST_FAILED: 'Service không trả lời (có thể đã quá thời gian). Thử lại sau vài giây.',
-  RESPONSE_TOO_LARGE: 'Kết quả quá lớn để hiển thị. Thu hẹp filter hoặc giảm limit rồi thử lại.',
-  HOST_TIMEOUT: 'OpenChamber không phản hồi kịp. Thử lại sau vài giây.',
+  NO_SERVICE: 'The Mongo Studio service is not enabled. Open Settings → Extensions, enable Mongo Studio and allow its service, then try again.',
+  DISABLED: 'Mongo Studio is paused in Settings → Extensions. Turn it back on to continue.',
+  SERVICE_FAILED: 'The Mongo Studio service could not start. Check the OpenChamber log, then try again.',
+  REQUEST_FAILED: 'The service did not respond (it may have timed out). Try again in a few seconds.',
+  RESPONSE_TOO_LARGE: 'The result is too large to display. Narrow the filter or lower the limit, then try again.',
+  HOST_TIMEOUT: 'OpenChamber did not respond in time. Try again in a few seconds.',
 };
 
 function hostFailure(error: unknown): ApiError {
   const code = typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : 'HOST';
-  const message = HOST_MESSAGES[code] ?? (error instanceof Error ? error.message : 'Không gọi được service');
+  const message = HOST_MESSAGES[code] ?? (error instanceof Error ? error.message : 'Could not call the service');
   return new ApiError(message, code, 0);
 }
 
@@ -75,11 +75,11 @@ export function createApi(host: GuestHost): Api {
       }
       const data = parseReply(reply.body);
       if (data === null) {
-        throw new ApiError('Service trả về dữ liệu không đọc được. Thử mở lại Mongo Studio.', 'BAD_RESPONSE', reply.status);
+        throw new ApiError('The service returned unreadable data. Try reopening Mongo Studio.', 'BAD_RESPONSE', reply.status);
       }
       // Chỉ HTTP 4xx/5xx là lỗi. Kết quả thất bại có chủ đích (ví dụ test connection) trả 200 với ok:false.
       if (reply.status >= 400) {
-        const failure = isErrorBody(data) ? data : { error: `Lỗi HTTP ${reply.status}`, code: 'HTTP' };
+        const failure = isErrorBody(data) ? data : { error: `HTTP error ${reply.status}`, code: 'HTTP' };
         throw new ApiError(failure.error, failure.code, reply.status, failure.position ?? null);
       }
       return data as T;

@@ -44,6 +44,6 @@ describe('scanRoute ghi báo cáo (nút "Ghi báo cáo dự án")', () => {
     expect(error).toBeInstanceOf(HttpError);
     expect((error as HttpError).status).toBe(400);
     expect((error as HttpError).code).toBe('UNSAFE_PATH');
-    expect((error as HttpError).message).toContain('không ghi được báo cáo');
+    expect((error as HttpError).message).toContain('Could not write the report');
   });
 });
