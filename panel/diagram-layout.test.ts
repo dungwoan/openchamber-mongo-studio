@@ -206,3 +206,44 @@ describe('resolveDrop (thả thẻ không đè thẻ khác)', () => {
     expect(resolveDrop('zzz', positions, sizes)).toEqual({ x: 0, y: 0 });
   });
 });
+
+import { CARD_FIELDS_SHOWN, CARD_HEADER, CARD_ROW, cardHeightFor, fieldWindow } from './diagram-layout.ts';
+
+describe('fieldWindow (thẻ có hơn 12 field: +N more / thu gọn)', () => {
+  test('thu gọn: hiện 12 field đầu, còn lại là số ẩn; có nút', () => {
+    expect(fieldWindow(15, false)).toEqual({ shown: 12, hidden: 3, collapsible: true });
+  });
+  test('mở rộng: hiện đủ field; nút vẫn có (để thu gọn)', () => {
+    expect(fieldWindow(15, true)).toEqual({ shown: 15, hidden: 0, collapsible: true });
+  });
+  test('không quá 12 field: không có nút, dù đang ở trạng thái mở rộng', () => {
+    expect(fieldWindow(5, false)).toEqual({ shown: 5, hidden: 0, collapsible: false });
+    expect(fieldWindow(12, true)).toEqual({ shown: 12, hidden: 0, collapsible: false });
+  });
+  test('mặc định cắt ở CARD_FIELDS_SHOWN', () => {
+    expect(CARD_FIELDS_SHOWN).toBe(12);
+    expect(fieldWindow(13, false).shown).toBe(CARD_FIELDS_SHOWN);
+  });
+});
+
+describe('cardHeightFor (chiều cao thẻ theo số dòng hiện)', () => {
+  test('mở rộng cao hơn thu gọn đúng bằng số dòng thêm', () => {
+    expect(cardHeightFor(15, true) - cardHeightFor(12, true)).toBe(3 * CARD_ROW);
+  });
+  test('field cuối và dòng nút nằm gọn trong khung', () => {
+    const n = 15;
+    const controlBottom = CARD_HEADER + 6 + (n + 1) * CARD_ROW;
+    expect(cardHeightFor(n, true)).toBeGreaterThanOrEqual(controlBottom);
+  });
+  test('không có nút thì không có dòng nút thừa', () => {
+    expect(cardHeightFor(5, false)).toBe(CARD_HEADER + 6 + 5 * CARD_ROW + 6);
+  });
+});
+
+describe('hình học cạnh khi thẻ mở rộng', () => {
+  test('cạnh xuất phát đúng tâm chiều cao của thẻ đã mở rộng', () => {
+    const h = cardHeightFor(15, true);
+    const g = edgeGeometry({ x: 0, y: 0, width: 240, height: h }, { x: 400, y: 0, width: 240, height: 100 });
+    expect(g.d.startsWith(`M 240 ${h / 2} `)).toBe(true);
+  });
+});

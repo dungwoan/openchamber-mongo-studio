@@ -257,3 +257,24 @@ export function resolveDrop(id: string, positions: Map<string, Point>, sizes: Ma
   }
   return best;
 }
+
+/** Kích thước một thẻ bảng: dải tiêu đề, một dòng field, và số field hiện mặc định. */
+export const CARD_HEADER = 26;
+export const CARD_ROW = 18;
+export const CARD_FIELDS_SHOWN = 12;
+
+/**
+ * Cửa sổ field của một thẻ: thu gọn chỉ hiện CARD_FIELDS_SHOWN field đầu; mở rộng hiện tất cả.
+ * Có nút (+N more / thu gọn) khi tổng số field vượt quá giới hạn.
+ */
+export function fieldWindow(total: number, expanded: boolean, max = CARD_FIELDS_SHOWN): { shown: number; hidden: number; collapsible: boolean } {
+  const collapsible = total > max;
+  const shown = expanded || !collapsible ? total : max;
+  return { shown, hidden: total - shown, collapsible };
+}
+
+/** Chiều cao khung thẻ: tiêu đề, các dòng field đang hiện, và một dòng nút nếu có. */
+export function cardHeightFor(shownRows: number, withControl: boolean): number {
+  const rows = Math.max(shownRows, 1) + (withControl ? 1 : 0);
+  return CARD_HEADER + 6 + rows * CARD_ROW + 6;
+}

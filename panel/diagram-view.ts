@@ -16,6 +16,11 @@ import type {
 } from '../shared/api.ts';
 import {
   applyOverrides,
+  CARD_FIELDS_SHOWN,
+  CARD_HEADER,
+  CARD_ROW,
+  cardHeightFor,
+  fieldWindow,
   edgeGeometry,
   filterRelations,
   groupShards,
@@ -33,9 +38,8 @@ import { append, h, slot } from './dom.ts';
 
 const MAX_VISIBLE = 80;
 const CARD_WIDTH = 240;
-const HEADER = 26;
-const ROW = 18;
-const MAX_FIELDS = 12;
+const HEADER = CARD_HEADER;
+const ROW = CARD_ROW;
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const ARROW_DECLARED = 'ms-dg-arrow-declared';
 const ARROW_INFERRED = 'ms-dg-arrow-inferred';
@@ -43,7 +47,18 @@ const ARROW_INFERRED = 'ms-dg-arrow-inferred';
 const SAVE_DELAY_MS = 400;
 
 type Handle = { dispose(): void };
-type Card = { id: string; label: string; width: number; height: number; fields: SchemaCollection['fields']; more: number; inferred: boolean };
+type Card = {
+  id: string;
+  label: string;
+  width: number;
+  height: number;
+  fields: SchemaCollection['fields'];
+  /** Số field đang ẩn (khi thu gọn). */
+  hidden: number;
+  collapsible: boolean;
+  expanded: boolean;
+  inferred: boolean;
+};
 type EdgeView = { path: SVGPathElement; label: SVGTextElement; labelBg: SVGRectElement; from: string; to: string; text: string };
 type Scene = { cards: Map<string, Card>; positions: Map<string, Point>; nodes: Map<string, SVGGElement>; edges: EdgeView[] };
 
@@ -72,20 +87,23 @@ function svgEl(tag: string, attrs: Record<string, string | number>, className?: 
   return node;
 }
 
-function cardsOf(groups: ReturnType<typeof groupShards>, byName: Map<string, SchemaCollection>): Card[] {
+/** Thẻ của các nhóm; chiều cao khớp đúng số dòng đang hiện (kể cả dòng nút). */
+function cardsOf(groups: ReturnType<typeof groupShards>, byName: Map<string, SchemaCollection>, expanded: ReadonlySet<string>): Card[] {
   return groups.map((group) => {
     const first = byName.get(group.members[0] ?? '');
     const fields = first?.fields ?? [];
-    const shown = fields.slice(0, MAX_FIELDS);
-    const more = fields.length - shown.length;
-    const rows = Math.max(shown.length, 1) + (more > 0 ? 1 : 0);
+    const open = expanded.has(group.id);
+    const window = fieldWindow(fields.length, open);
+    const shown = fields.slice(0, window.shown);
     return {
       id: group.id,
       label: group.label,
       width: CARD_WIDTH,
-      height: HEADER + 6 + rows * ROW + 6,
+      height: cardHeightFor(shown.length, window.collapsible),
       fields: shown,
-      more,
+      hidden: window.hidden,
+      collapsible: window.collapsible,
+      expanded: open,
       inferred: first?.confidence === 'inferred',
     };
   });
@@ -132,6 +150,8 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   let view = { x: 0, y: 0, w: 1000, h: 600 };
   /** Vị trí thẻ đã kéo trong phiên; "Sắp xếp lại" xoá. */
   const manual = new Map<string, Point>();
+  /** Thẻ đang mở rộng (hiện đủ field); theo phiên, không lưu file. */
+  const expandedCards = new Set<string>();
   let scene: Scene | null = null;
   let layoutLoaded = false;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -314,6 +334,26 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     }
   }
 
+  /** Bật/tắt mở rộng của một thẻ: dựng lại sơ đồ, rồi dời thẻ nếu chiều cao mới làm nó đè thẻ khác. */
+  function toggleCard(id: string): void {
+    if (expandedCards.has(id)) expandedCards.delete(id);
+    else expandedCards.add(id);
+    render();
+    settleCard(id);
+  }
+
+  /** Sau khi thẻ đổi chiều cao: nếu đè thẻ khác thì dời như khi thả, rồi lưu layout nếu có dời. */
+  function settleCard(id: string): void {
+    if (scene === null) return;
+    const sizes = new Map([...scene.cards].map(([key, card]) => [key, { width: card.width, height: card.height }]));
+    const landed = resolveDrop(id, scene.positions, sizes);
+    const current = scene.positions.get(id);
+    if (current && (landed.x !== current.x || landed.y !== current.y)) {
+      placeNode(id, landed);
+      scheduleSave();
+    }
+  }
+
   function scheduleSave(): void {
     if (saveTimer !== null) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => void persist(), SAVE_DELAY_MS);
@@ -410,10 +450,19 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       type.textContent = field.array ? `${field.type}[]` : field.type;
       group.appendChild(type);
     });
-    if (card.more > 0) {
-      const more = svgEl('text', { x: 10, y: HEADER + 6 + card.fields.length * ROW + 13 }, 'ms-dg-more');
-      more.textContent = `+${card.more} more`;
-      group.appendChild(more);
+    if (card.collapsible) {
+      // Nút +N more / thu gọn: vùng bấm trong suốt phủ cả dòng. pointerdown dừng lan để không kích hoạt pan khung.
+      const toggle = svgEl('g', { transform: `translate(0 ${HEADER + 6 + card.fields.length * ROW})` }, 'ms-dg-toggle') as SVGGElement;
+      toggle.appendChild(svgEl('rect', { x: 0, y: 0, width: card.width, height: ROW, fill: 'transparent' }));
+      const label = svgEl('text', { x: 10, y: 13 }, 'ms-dg-more');
+      label.textContent = card.expanded ? 'thu gọn' : `+${card.hidden} more`;
+      toggle.appendChild(label);
+      toggle.addEventListener('pointerdown', (event: PointerEvent) => event.stopPropagation());
+      toggle.addEventListener('click', (event: MouseEvent) => {
+        event.stopPropagation();
+        toggleCard(card.id);
+      });
+      group.appendChild(toggle);
     }
     header.addEventListener('pointerdown', (event: PointerEvent) => {
       event.stopPropagation();
@@ -536,7 +585,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     byName: Map<string, SchemaCollection>,
     groupOf: Map<string, string>,
   ): void {
-    const cards = cardsOf(shown, byName);
+    const cards = cardsOf(shown, byName, expandedCards);
     const cardById = new Map(cards.map((c) => [c.id, c]));
     const visibleEdges = edges.filter((e) => cardById.has(e.from) && cardById.has(e.to));
     const auto = layout(cards.map((c) => ({ id: c.id, width: c.width, height: c.height })), visibleEdges);

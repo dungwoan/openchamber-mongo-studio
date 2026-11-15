@@ -333,6 +333,8 @@
 .ms-dg-type { font-size: 11px; font-family: var(--oc-mono, monospace); fill: var(--oc-primary-text, #2f6bff); }
 .ms-dg-type-mixed { fill: var(--oc-muted, #888); font-style: italic; opacity: 0.7; }
 .ms-dg-more { font-size: 10px; font-style: italic; fill: var(--oc-muted, #888); }
+.ms-dg-toggle { cursor: pointer; }
+.ms-dg-toggle:hover .ms-dg-more { text-decoration: underline; fill: var(--oc-primary-text, #2f6bff); font-style: normal; }
 .ms-dg-edge { fill: none; stroke-width: 1.6; }
 .ms-dg-edge-declared { stroke: var(--oc-primary, #2f6bff); }
 .ms-dg-edge-inferred { stroke: var(--oc-warning, #d98e04); stroke-dasharray: 6 4; stroke-width: 1.4; }
