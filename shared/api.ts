@@ -14,7 +14,36 @@ export type ConnectionView = {
   hosts: string;
   readOnly: boolean;
   connected: boolean;
+  /** "project-file" với connection lấy từ file cấu hình của dự án (không lưu, không sửa, không xoá được). */
+  source?: 'saved' | 'project-file';
+  /** Tên file cấu hình nguồn, ví dụ ".env", chỉ có khi source là "project-file". */
+  sourceFile?: string;
 };
+
+/** Connection mà panel nhận khi tự kết nối theo dự án. Không có URI, không có mật khẩu. */
+export type ProjectConnectionView = {
+  id: string;
+  name: string;
+  /** Danh sách host kèm port, không có thông tin đăng nhập, ví dụ "db1:27017". */
+  host: string;
+  /** Tên database trong URI, hoặc chuỗi rỗng. */
+  db: string;
+  source: 'remembered' | 'project-file';
+  sourceFile?: string;
+};
+
+/** Kết quả của /project/open: không làm gì, đã nối, hoặc không nối được (kèm lý do an toàn để hiển thị). */
+export type ProjectConnectResponse =
+  | { status: 'none' }
+  | { status: 'connected'; connection: ProjectConnectionView }
+  | {
+      status: 'error';
+      source: 'remembered' | 'project-file';
+      name?: string;
+      sourceFile?: string;
+      code: string;
+      error: string;
+    };
 
 /** Thân lỗi của mọi route; code ổn định để page chọn cách hiển thị. */
 export type ErrorBody = {

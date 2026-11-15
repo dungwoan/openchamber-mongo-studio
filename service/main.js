@@ -29795,6 +29795,14 @@ function hostsOf(uri) {
   const at = authority.lastIndexOf("@");
   return at === -1 ? authority : authority.slice(at + 1);
 }
+function databaseOf(uri) {
+  const afterScheme = uri.trim().replace(SCHEME, "");
+  const end = afterScheme.search(/[/?]/);
+  if (end === -1 || afterScheme[end] !== "/")
+    return "";
+  const path = afterScheme.slice(end + 1).split("?")[0] ?? "";
+  return safeDecode(path);
+}
 function uriProblem(uri) {
   const trimmed = uri.trim();
   if (trimmed.length > MAX_URI_LENGTH)
@@ -30317,17 +30325,70 @@ function requireObject(value, key) {
   return value;
 }
 
+// service/detected.ts
+import { createHash } from "node:crypto";
+import path2 from "node:path";
+
 // service/store.ts
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+// service/project-memory.ts
+var MAX_ID2 = 64;
+function sanitizeMemory(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
+  const raw = value;
+  const memory = {};
+  if (typeof raw.connectionId === "string" && raw.connectionId !== "" && raw.connectionId.length <= MAX_ID2) {
+    memory.connectionId = raw.connectionId;
+  }
+  if (raw.autoDisabled === true)
+    memory.autoDisabled = true;
+  if (raw.detected === true)
+    memory.detected = true;
+  return memory;
+}
+function pickSource(memory, rememberedExists) {
+  if (memory.autoDisabled)
+    return "disabled";
+  if (memory.connectionId !== undefined && rememberedExists)
+    return "remembered";
+  return "scan";
+}
+function withAutoDisabled(memory, disabled) {
+  const next = { ...memory };
+  if (disabled)
+    next.autoDisabled = true;
+  else
+    delete next.autoDisabled;
+  return next;
+}
+function withSelection(memory, selection) {
+  const next = { ...memory };
+  delete next.autoDisabled;
+  if (selection.kind === "saved") {
+    next.connectionId = selection.id;
+  } else {
+    delete next.connectionId;
+    next.detected = true;
+  }
+  return next;
+}
+function withDetected(memory) {
+  return { ...memory, detected: true };
+}
+
+// service/store.ts
 var HISTORY_LIMIT = 50;
 function dataDir() {
   return path.join(os.homedir(), ".openchamber-mongo-studio");
 }
 var connectionsFile = () => path.join(dataDir(), "connections.json");
 var historyFile = () => path.join(dataDir(), "history.json");
+var projectsFile = () => path.join(dataDir(), "projects.json");
 var queue = Promise.resolve();
 function exclusive(task) {
   const run = queue.then(task, task);
@@ -30383,6 +30444,38 @@ function changeConnections(change) {
     return result;
   });
 }
+async function listProjects() {
+  let data;
+  try {
+    data = await readJson(projectsFile());
+  } catch (error) {
+    if (error instanceof HttpError && error.code === "STORE_CORRUPT") {
+      console.error("mongo-studio: projects.json hỏng, bỏ qua bản nhớ theo dự án");
+      return {};
+    }
+    throw error;
+  }
+  const projects = data?.projects;
+  if (typeof projects !== "object" || projects === null || Array.isArray(projects))
+    return {};
+  const result = {};
+  for (const [key, value] of Object.entries(projects)) {
+    const memory = sanitizeMemory(value);
+    if (memory && key.startsWith("/"))
+      result[key] = memory;
+  }
+  return result;
+}
+function changeProjects(change) {
+  return exclusive(async () => {
+    const before = await listProjects();
+    const { map, result } = change(before);
+    if (JSON.stringify(map) !== JSON.stringify(before)) {
+      await writeJson(projectsFile(), { version: 1, projects: map });
+    }
+    return result;
+  });
+}
 async function listHistory() {
   const data = await readJson(historyFile());
   const entries = data?.entries;
@@ -30407,10 +30500,32 @@ function addHistory(entry) {
   });
 }
 
+// service/detected.ts
+var registry = new Map;
+function detectedId(projectKey, sourceFile) {
+  return `auto-${createHash("sha256").update(`${projectKey}\x00${sourceFile}`).digest("hex").slice(0, 32)}`;
+}
+function registerDetected(projectKey, found) {
+  const record = {
+    id: detectedId(projectKey, found.sourceFile),
+    name: `${path2.basename(projectKey)} · ${found.sourceFile}`,
+    uri: found.uri,
+    readOnly: true,
+    sourceFile: found.sourceFile,
+    projectKey
+  };
+  registry.set(record.id, record);
+  return record;
+}
+async function findConnection(id) {
+  const saved = (await listConnections()).find((item) => item.id === id);
+  return saved ?? registry.get(id);
+}
+
 // service/handlers/common.ts
 var RESPONSE_BUDGET = 6000000;
 async function requireRecord(id) {
-  const record = (await listConnections()).find((item) => item.id === id);
+  const record = await findConnection(id);
   if (!record)
     throw notFound("Không tìm thấy connection này. Tải lại danh sách rồi thử lại.");
   return record;
@@ -30589,7 +30704,7 @@ async function resolveRoute(body) {
   const ref = decodeMentionId(requireString(body, "id", 256));
   if (!ref)
     throw badRequest("Row này không còn hợp lệ. Mở lại menu @ rồi chọn lại.");
-  const record = (await listConnections()).find((item) => item.id === ref.connectionId);
+  const record = await findConnection(ref.connectionId);
   if (!record)
     throw notFound("Connection của row này đã bị xoá. Mở lại menu @ rồi chọn lại.");
   const text = await withDatabase(record, ref.database, (db) => describeCollection(db, record, ref.database, ref.collection));
@@ -30663,6 +30778,292 @@ function fieldLines(docs) {
   return [...types.keys()].sort().map((path) => `- ${path}: ${[...types.get(path) ?? []].sort().join(", ")}`);
 }
 
+// service/project-files.ts
+import { readFile as readFile2, realpath, stat } from "node:fs/promises";
+import path3 from "node:path";
+
+// service/env-file.ts
+var KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
+var COMPOSE_LINE = /^\s*-?\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*[:=]\s*(.*)$/;
+function quotedValue(rest) {
+  const quote = rest[0];
+  let out = "";
+  for (let i = 1;i < rest.length; i += 1) {
+    const ch = rest[i];
+    if (quote === '"' && ch === "\\" && i + 1 < rest.length) {
+      const next = rest[i + 1];
+      if (next === "n")
+        out += `
+`;
+      else if (next === '"' || next === "\\")
+        out += next;
+      else
+        out += `\\${next}`;
+      i += 1;
+      continue;
+    }
+    if (ch === quote)
+      return out;
+    out += ch;
+  }
+  return null;
+}
+function unquotedValue(rest) {
+  const hash = rest.search(/(^|\s)#/);
+  return (hash === -1 ? rest : rest.slice(0, hash)).trim();
+}
+function dotenvLine(raw) {
+  const line = raw.trim();
+  if (line === "" || line.startsWith("#"))
+    return null;
+  const body = line.replace(/^export\s+/, "");
+  const eq = body.indexOf("=");
+  if (eq === -1)
+    return null;
+  const key = body.slice(0, eq).trim();
+  if (!KEY_PATTERN.test(key))
+    return null;
+  const rest = body.slice(eq + 1).trimStart();
+  if (rest.startsWith('"') || rest.startsWith("'")) {
+    const value = quotedValue(rest);
+    return value === null ? null : { key, value };
+  }
+  return { key, value: unquotedValue(rest) };
+}
+function parseDotenv(text) {
+  return text.replace(/^﻿/, "").split(/\r?\n/).map(dotenvLine).filter((entry) => entry !== null);
+}
+function parseCompose(text) {
+  const entries = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const match = COMPOSE_LINE.exec(raw);
+    if (!match)
+      continue;
+    const key = match[1];
+    const rest = (match[2] ?? "").trim();
+    if (rest === "" || rest.startsWith("#"))
+      continue;
+    if (rest.startsWith('"') || rest.startsWith("'")) {
+      const value = quotedValue(rest);
+      if (value !== null)
+        entries.push({ key, value });
+      continue;
+    }
+    entries.push({ key, value: unquotedValue(rest) });
+  }
+  return entries;
+}
+
+// service/project-files.ts
+var PROJECT_FILES = [
+  ".env",
+  ".env.local",
+  ".env.development",
+  ".env.development.local",
+  "docker-compose.yml",
+  "compose.yml"
+];
+var URI_KEYS = ["MONGODB_URI", "MONGO_URI", "MONGODB_URL", "DATABASE_URL", "MONGODB_DSN"];
+var MAX_FILE_BYTES = 256 * 1024;
+var MAX_PATH = 4096;
+var MONGO_SCHEME = /^mongodb(\+srv)?:\/\//;
+function badDirectory() {
+  return new HttpError(400, "BAD_DIRECTORY", "Đường dẫn dự án không hợp lệ. Cần đường dẫn tuyệt đối tới một thư mục có thật.");
+}
+async function resolveProjectDir(input) {
+  if (typeof input !== "string" || input.trim() === "" || input.length > MAX_PATH || input.includes("\x00")) {
+    throw badDirectory();
+  }
+  if (!path3.isAbsolute(input) || input.split(/[\\/]/).includes(".."))
+    throw badDirectory();
+  const key = path3.normalize(input);
+  let real;
+  try {
+    real = await realpath(key);
+  } catch {
+    throw badDirectory();
+  }
+  const info = await stat(real);
+  if (!info.isDirectory())
+    throw badDirectory();
+  return { key, real };
+}
+function isInside(root, target) {
+  const prefix = root.endsWith(path3.sep) ? root : `${root}${path3.sep}`;
+  return target === root || target.startsWith(prefix);
+}
+async function readAllowed(dir, name) {
+  let target;
+  try {
+    target = await realpath(path3.join(dir.real, name));
+  } catch {
+    return null;
+  }
+  if (!isInside(dir.real, target)) {
+    console.warn(`mongo-studio: bỏ qua ${name} vì trỏ ra ngoài thư mục dự án`);
+    return null;
+  }
+  try {
+    const info = await stat(target);
+    if (!info.isFile() || info.size > MAX_FILE_BYTES)
+      return null;
+    return await readFile2(target, "utf8");
+  } catch {
+    console.warn(`mongo-studio: không đọc được ${name} của dự án`);
+    return null;
+  }
+}
+function entriesOf(name, text) {
+  return name.endsWith(".yml") ? parseCompose(text) : parseDotenv(text);
+}
+function lastValues(entries) {
+  const values = new Map;
+  for (const { key, value } of entries)
+    values.set(key.toUpperCase(), value);
+  return values;
+}
+function pickUri(files) {
+  let invalid = null;
+  for (const { name, text } of files) {
+    const values = lastValues(entriesOf(name, text));
+    for (const key of URI_KEYS) {
+      const raw = values.get(key);
+      if (raw === undefined)
+        continue;
+      const value = raw.trim();
+      if (!MONGO_SCHEME.test(value))
+        continue;
+      const problem = uriProblem(value);
+      if (problem === null)
+        return { kind: "found", uri: value, sourceFile: name, key };
+      invalid ??= { kind: "invalid", sourceFile: name, key, problem };
+    }
+  }
+  return invalid;
+}
+async function detectProjectUri(dir) {
+  const files = [];
+  for (const name of PROJECT_FILES) {
+    const text = await readAllowed(dir, name);
+    if (text !== null)
+      files.push({ name, text });
+  }
+  return pickUri(files);
+}
+
+// service/handlers/project.ts
+var NONE = { status: "none" };
+function infoOf(record, source) {
+  const sourceFile = record.sourceFile;
+  return {
+    id: record.id,
+    name: record.name,
+    host: hostsOf(record.uri),
+    db: databaseOf(record.uri),
+    source,
+    ...sourceFile ? { sourceFile } : {}
+  };
+}
+async function connectTo(record, source) {
+  try {
+    await clientFor(record);
+  } catch (error) {
+    const mapped = toHttpError(error, record.uri, "connect");
+    const sourceFile = record.sourceFile;
+    return {
+      status: "error",
+      source,
+      name: record.name,
+      ...sourceFile ? { sourceFile } : {},
+      code: mapped.code,
+      error: mapped.message
+    };
+  }
+  return { status: "connected", connection: infoOf(record, source) };
+}
+async function scanAndConnect(dir, memory) {
+  const found = await detectProjectUri(dir);
+  if (found === null)
+    return NONE;
+  if (found.kind === "invalid") {
+    return { status: "error", source: "project-file", sourceFile: found.sourceFile, code: "INVALID_URI", error: found.problem };
+  }
+  const record = registerDetected(dir.key, found);
+  const reply = await connectTo(record, "project-file");
+  if (reply.status === "connected" && memory.detected !== true) {
+    await changeProjects((map) => ({ map: { ...map, [dir.key]: withDetected(map[dir.key] ?? {}) }, result: undefined }));
+  }
+  return reply;
+}
+async function openRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const memory = (await listProjects())[dir.key] ?? {};
+  const saved = memory.connectionId === undefined ? undefined : (await listConnections()).find((item) => item.id === memory.connectionId);
+  const plan = pickSource(memory, saved !== undefined);
+  if (plan === "disabled")
+    return NONE;
+  if (plan === "remembered" && saved)
+    return connectTo(saved, "remembered");
+  return scanAndConnect(dir, memory);
+}
+async function disconnectRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const memory = (await listProjects())[dir.key] ?? {};
+  if (memory.connectionId !== undefined)
+    await closeConnection(memory.connectionId);
+  const found = await detectProjectUri(dir);
+  if (found?.kind === "found")
+    await closeConnection(detectedId(dir.key, found.sourceFile));
+  await changeProjects((map) => ({
+    map: { ...map, [dir.key]: withAutoDisabled(map[dir.key] ?? {}, true) },
+    result: undefined
+  }));
+  return { ok: true };
+}
+async function selectionOf(dir, connectionId) {
+  if ((await listConnections()).some((item) => item.id === connectionId))
+    return { kind: "saved", id: connectionId };
+  const found = await detectProjectUri(dir);
+  if (found?.kind === "found" && detectedId(dir.key, found.sourceFile) === connectionId) {
+    registerDetected(dir.key, found);
+    return { kind: "detected" };
+  }
+  throw notFound("Connection này không còn trong dự án. Tải lại danh sách rồi thử lại.");
+}
+async function selectRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const connectionId = requireString(body, "connectionId", 64);
+  const selection = await selectionOf(dir, connectionId);
+  await changeProjects((map) => ({
+    map: { ...map, [dir.key]: withSelection(map[dir.key] ?? {}, selection) },
+    result: undefined
+  }));
+  return { ok: true };
+}
+async function detectedListing(input) {
+  let dir;
+  try {
+    dir = await resolveProjectDir(input);
+  } catch (error) {
+    if (error instanceof HttpError && error.code === "BAD_DIRECTORY")
+      return null;
+    throw error;
+  }
+  const found = await detectProjectUri(dir);
+  if (found?.kind !== "found")
+    return null;
+  const record = registerDetected(dir.key, found);
+  return {
+    id: record.id,
+    name: record.name,
+    hosts: hostsOf(record.uri),
+    readOnly: record.readOnly,
+    connected: isConnected(record.id),
+    source: "project-file",
+    sourceFile: record.sourceFile
+  };
+}
+
 // service/handlers/connections.ts
 var PROBE_OPTIONS = { appName: "mongo-studio", serverSelectionTimeoutMS: 5000, connectTimeoutMS: 5000 };
 function viewOf(record) {
@@ -30674,9 +31075,15 @@ function viewOf(record) {
     connected: isConnected(record.id)
   };
 }
-async function listRoute() {
+async function listRoute(body) {
   const records = await listConnections();
-  return { connections: records.map(viewOf) };
+  const views = records.map((record) => viewOf(record));
+  if (body.directory !== undefined && body.directory !== null) {
+    const detected = await detectedListing(body.directory);
+    if (detected)
+      views.push(detected);
+  }
+  return { connections: views };
 }
 function nameFrom(body) {
   const name = requireString(body, "name", 64).trim();
@@ -30725,7 +31132,7 @@ async function deleteRoute(body) {
   forgetConnection(id);
   return { ok: true };
 }
-async function disconnectRoute(body) {
+async function disconnectRoute2(body) {
   const id = requireString(body, "id", 64);
   await requireRecord(id);
   await closeConnection(id);
@@ -30975,7 +31382,7 @@ async function historyAddRoute(body) {
   const text = requireString(body, "text", 20000);
   const connectionId = requireString(body, "connectionId", 64);
   const database = requireString(body, "database", 255);
-  const exists = (await listConnections()).some((record) => record.id === connectionId);
+  const exists = await findConnection(connectionId) !== undefined;
   if (!exists)
     throw badRequest("Connection không còn tồn tại");
   await addHistory({ text, connectionId, database, at: Date.now() });
@@ -30985,9 +31392,12 @@ async function historyAddRoute(body) {
 // service/routes.ts
 var ROUTES = {
   "/connections/list": listRoute,
+  "/project/open": openRoute,
+  "/project/disconnect": disconnectRoute,
+  "/project/select": selectRoute,
   "/connections/save": saveRoute,
   "/connections/delete": deleteRoute,
-  "/connections/disconnect": disconnectRoute,
+  "/connections/disconnect": disconnectRoute2,
   "/connections/test": testRoute,
   "/tree/databases": databasesRoute,
   "/tree/collections": collectionsRoute,

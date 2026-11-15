@@ -1,6 +1,6 @@
 {
   "name": "mongo-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Mongo Studio for OpenChamber: connect to MongoDB, browse collections and run mongo-shell style queries.",

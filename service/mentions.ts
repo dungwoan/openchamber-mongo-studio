@@ -10,6 +10,7 @@ import { badRequest, notFound, toHttpError } from './errors.ts';
 import { numberOf } from './ejson.ts';
 import { maskSensitive } from './mask.ts';
 import { decodeMentionId, rememberCollections, searchMentions } from './mentions-cache.ts';
+import { findConnection } from './detected.ts';
 import { clientFor, withDatabase } from './pool.ts';
 import { type ConnectionRecord, listConnections } from './store.ts';
 import { type Body, requireString } from './validate.ts';
@@ -55,7 +56,7 @@ export function searchRoute(body: Body): ReturnType<typeof searchMentions> {
 export async function resolveRoute(body: Body): Promise<MentionsResolveResult> {
   const ref = decodeMentionId(requireString(body, 'id', 256));
   if (!ref) throw badRequest('Row này không còn hợp lệ. Mở lại menu @ rồi chọn lại.');
-  const record = (await listConnections()).find((item) => item.id === ref.connectionId);
+  const record = await findConnection(ref.connectionId);
   if (!record) throw notFound('Connection của row này đã bị xoá. Mở lại menu @ rồi chọn lại.');
   const text = await withDatabase(record, ref.database, (db) =>
     describeCollection(db, record, ref.database, ref.collection));

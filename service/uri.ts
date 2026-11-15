@@ -29,6 +29,23 @@ export function hostsOf(uri: string): string {
 }
 
 /**
+ * Tên database trong URI (phần path sau host, không gồm query), hoặc chuỗi rỗng.
+ *
+ * Args:
+ *   uri: Chuỗi kết nối đầy đủ.
+ *
+ * Returns:
+ *   Tên database đã giải mã, ví dụ "shop" từ mongodb://h/shop?authSource=admin.
+ */
+export function databaseOf(uri: string): string {
+  const afterScheme = uri.trim().replace(SCHEME, '');
+  const end = afterScheme.search(/[/?]/);
+  if (end === -1 || afterScheme[end] !== '/') return '';
+  const path = afterScheme.slice(end + 1).split('?')[0] ?? '';
+  return safeDecode(path);
+}
+
+/**
  * Kiểm tra định dạng cơ bản của URI trước khi lưu.
  *
  * Args:

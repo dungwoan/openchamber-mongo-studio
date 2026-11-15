@@ -15,6 +15,8 @@ import type { Api } from './api.ts';
 export type Listener = () => void;
 
 export type TreeState = {
+  /** Thư mục dự án đang mở trong OpenChamber, hoặc null. Danh sách connection có thêm cấu hình của dự án này. */
+  directory: string | null;
   connections: ConnectionView[];
   /** Có đang tải danh sách connection không. */
   loadingConnections: boolean;
@@ -30,6 +32,7 @@ export type TreeState = {
 };
 
 export const tree: TreeState = {
+  directory: null,
   connections: [],
   loadingConnections: false,
   connectionsError: null,
@@ -63,7 +66,8 @@ export async function loadConnections(api: Api): Promise<void> {
   tree.loadingConnections = true;
   emit();
   try {
-    const reply = await api.call<ConnectionsListResponse>('/connections/list');
+    const body = tree.directory === null ? {} : { directory: tree.directory };
+    const reply = await api.call<ConnectionsListResponse>('/connections/list', body);
     tree.connections = reply.connections;
     tree.connectionsError = null;
     const alive = new Set(reply.connections.map((item) => item.id));
@@ -83,6 +87,32 @@ export function forgetConnectionCache(connectionId: string): void {
   for (const key of [...tree.collections.keys()]) if (key.startsWith(`${connectionId}/`)) tree.collections.delete(key);
   for (const key of [...tree.errors.keys()]) if (key.startsWith(`${connectionId}/`)) tree.errors.delete(key);
   for (const key of [...tree.expandedDatabases]) if (key.startsWith(`${connectionId}/`)) tree.expandedDatabases.delete(key);
+}
+
+/**
+ * Mở một connection trong cây: hiện các database và tải chúng nếu chưa có.
+ *
+ * Args:
+ *   api: Client gọi service.
+ *   connectionId: Connection cần mở.
+ */
+export function expandConnection(api: Api, connectionId: string): void {
+  tree.expandedConnections.add(connectionId);
+  emit();
+  if (!tree.databases.has(connectionId)) loadDatabases(api, connectionId).catch(() => undefined);
+}
+
+/**
+ * Ghi nhớ connection người dùng vừa chọn trong cây cho dự án đang mở (và bật lại nếu đã ngắt tự động).
+ * Không có dự án thì không làm gì.
+ *
+ * Args:
+ *   api: Client gọi service.
+ *   connectionId: Connection người dùng vừa chọn.
+ */
+export function rememberChoice(api: Api, connectionId: string): void {
+  if (tree.directory === null) return;
+  api.call('/project/select', { directory: tree.directory, connectionId }).catch(() => undefined);
 }
 
 /** Tải danh sách database của một connection. */

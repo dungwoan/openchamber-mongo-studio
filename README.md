@@ -34,10 +34,19 @@ bun install
 bunx openchamber-guest-bundle panel/main.ts panel/main.js
 bunx openchamber-guest-bundle --node service/main.ts service/main.js
 bunx openchamber-guest-check
-bun test shared/
+bun test
 ```
 
 Then add this folder in Settings → Extensions.
+
+## Auto-connect to project
+
+When the panel opens in a project folder, Mongo Studio connects to that project's database by itself, in this order:
+
+1. The connection you last chose for this project, if it is still saved.
+2. Otherwise, a `MONGODB_URI`, `MONGO_URI`, `MONGODB_URL`, `DATABASE_URL` or `MONGODB_DSN` value starting with `mongodb://` or `mongodb+srv://`, read from `.env`, `.env.local`, `.env.development`, `.env.development.local`, `docker-compose.yml` or `compose.yml` in the project folder (not its parents).
+
+A banner says what was connected, with a **Disconnect** button. Disconnecting stops auto-connect for this project until you pick a connection in the tree again. A connection found in a project file lives in memory only: it is not written to `connections.json`, it cannot be edited or deleted from the tree, and it is always **read-only**: inserts, updates, deletes and write commands in the Query tab are blocked. To write to that database, add the connection yourself with **Add connection** and leave Read-only unchecked. The project's file values are read only, and a file that is a symlink pointing outside the project is ignored.
 
 ## Security
 

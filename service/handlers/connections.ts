@@ -20,6 +20,7 @@ import { type ConnectionRecord, changeConnections, listConnections } from '../st
 import { hostsOf } from '../uri.ts';
 import { type Body, optionalBoolean, optionalString, requireString } from '../validate.ts';
 import { requireRecord } from './common.ts';
+import { detectedListing } from './project.ts';
 
 const PROBE_OPTIONS = { appName: 'mongo-studio', serverSelectionTimeoutMS: 5000, connectTimeoutMS: 5000 };
 
@@ -33,10 +34,17 @@ function viewOf(record: ConnectionRecord): ConnectionView {
   };
 }
 
-/** Route /connections/list. */
-export async function listRoute(): Promise<ConnectionsListResponse> {
+/**
+ * Route /connections/list. Khi panel gửi directory, danh sách có thêm connection lấy từ file cấu hình của dự án đó.
+ */
+export async function listRoute(body: Body): Promise<ConnectionsListResponse> {
   const records = await listConnections();
-  return { connections: records.map(viewOf) };
+  const views = records.map((record) => viewOf(record));
+  if (body.directory !== undefined && body.directory !== null) {
+    const detected = await detectedListing(body.directory);
+    if (detected) views.push(detected);
+  }
+  return { connections: views };
 }
 
 function nameFrom(body: Body): string {

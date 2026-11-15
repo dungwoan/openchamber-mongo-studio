@@ -8,6 +8,7 @@ import { collectionsRoute, databasesRoute, findRoute, indexesRoute } from './han
 import { deleteRoute as deleteConnectionRoute, disconnectRoute, listRoute, saveRoute, testRoute } from './handlers/connections.ts';
 import { deleteRoute as deleteDocumentRoute, insertRoute, replaceRoute } from './handlers/documents.ts';
 import { historyAddRoute, historyRoute, runRoute } from './handlers/query.ts';
+import { disconnectRoute as projectDisconnectRoute, openRoute as projectOpenRoute, selectRoute as projectSelectRoute } from './handlers/project.ts';
 import type { Body } from './validate.ts';
 import { resolveRoute, searchRoute } from './mentions.ts';
 
@@ -15,6 +16,9 @@ export type Handler = (body: Body) => unknown;
 
 export const ROUTES: Record<string, Handler> = {
   '/connections/list': listRoute,
+  '/project/open': projectOpenRoute,
+  '/project/disconnect': projectDisconnectRoute,
+  '/project/select': projectSelectRoute,
   '/connections/save': saveRoute,
   '/connections/delete': deleteConnectionRoute,
   '/connections/disconnect': disconnectRoute,

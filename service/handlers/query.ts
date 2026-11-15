@@ -5,9 +5,10 @@ import type { HistoryResponse, QueryResponse } from '../../shared/api.ts';
 import { isWriteCommand, parseQuery, pickStatement } from '../../shared/query-parser.ts';
 import { fitToBudget } from '../ejson.ts';
 import { badRequest, HttpError } from '../errors.ts';
+import { findConnection } from '../detected.ts';
 import { withDatabase } from '../pool.ts';
 import { executeCommand } from '../query-exec.ts';
-import { addHistory, listConnections, listHistory } from '../store.ts';
+import { addHistory, listHistory } from '../store.ts';
 import { type Body, optionalBoolean, optionalInteger, optionalString, requireString } from '../validate.ts';
 import { assertWritable, connectionFrom, RESPONSE_BUDGET } from './common.ts';
 
@@ -67,7 +68,7 @@ export async function historyAddRoute(body: Body): Promise<{ ok: true }> {
   const text = requireString(body, 'text', 20_000);
   const connectionId = requireString(body, 'connectionId', 64);
   const database = requireString(body, 'database', 255);
-  const exists = (await listConnections()).some((record) => record.id === connectionId);
+  const exists = (await findConnection(connectionId)) !== undefined;
   if (!exists) throw badRequest('Connection không còn tồn tại');
   await addHistory({ text, connectionId, database, at: Date.now() });
   return { ok: true };

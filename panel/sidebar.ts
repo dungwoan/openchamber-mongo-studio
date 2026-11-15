@@ -6,7 +6,16 @@ import { mountBanner, mountEmpty, mountMenu } from '@openchamber/sdk/ui';
 import type { ConnectionView, CollectionInfo, DatabaseInfo } from '../shared/api.ts';
 import type { Ctx } from './context.ts';
 import { groupDigits, h, slot } from './dom.ts';
-import { dbKey, emit, loadCollections, loadConnections, loadDatabases, subscribe, tree } from './state.ts';
+import {
+  dbKey,
+  emit,
+  expandConnection,
+  loadCollections,
+  loadConnections,
+  rememberChoice,
+  subscribe,
+  tree,
+} from './state.ts';
 
 type Handle = { dispose(): void };
 
@@ -53,11 +62,8 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
       emit();
       return;
     }
-    tree.expandedConnections.add(connection.id);
-    emit();
-    if (!tree.databases.has(connection.id)) {
-      loadDatabases(ctx.api, connection.id).catch(() => undefined);
-    }
+    expandConnection(ctx.api, connection.id);
+    rememberChoice(ctx.api, connection.id);
   };
 
   const toggleDatabase = (connection: ConnectionView, database: string): void => {
@@ -132,12 +138,19 @@ export function mountSidebar(container: HTMLElement, ctx: Ctx): () => void {
     name.addEventListener('click', () => toggleConnection(connection));
     row.appendChild(name);
     if (connection.readOnly) row.appendChild(h('span', 'ms-badge-ro', 'read-only'));
-    menuSlot(handles, row, '⋯', [
-      { id: 'edit', label: 'Edit' },
-      { id: 'disconnect', label: 'Disconnect', disabled: !connection.connected },
-      { id: 'sep', separator: true },
-      { id: 'delete', label: 'Delete', destructive: true },
-    ], (id) => {
+    if (connection.source === 'project-file') {
+      row.appendChild(h('span', 'ms-tree-meta', 'từ dự án'));
+      row.title = `Lấy từ ${connection.sourceFile ?? 'file cấu hình'} của dự án. Không lưu trên máy này.`;
+    }
+    const items: Parameters<typeof mountMenu>[1]['items'] = connection.source === 'project-file'
+      ? [{ id: 'disconnect', label: 'Disconnect', disabled: !connection.connected }]
+      : [
+        { id: 'edit', label: 'Edit' },
+        { id: 'disconnect', label: 'Disconnect', disabled: !connection.connected },
+        { id: 'sep', separator: true },
+        { id: 'delete', label: 'Delete', destructive: true },
+      ];
+    menuSlot(handles, row, '⋯', items, (id) => {
       if (id === 'edit') ctx.editConnection(connection);
       if (id === 'disconnect') ctx.disconnect(connection);
       if (id === 'delete') ctx.deleteConnection(connection);

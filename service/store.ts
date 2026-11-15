@@ -10,6 +10,7 @@ import path from 'node:path';
 
 import type { HistoryEntry } from '../shared/api.ts';
 import { badRequest, HttpError } from './errors.ts';
+import { type ProjectsMap, sanitizeMemory } from './project-memory.ts';
 
 /** Connection như lưu trên đĩa; URI chỉ tồn tại ở đây và trong bộ nhớ của service. */
 export type ConnectionRecord = {
@@ -28,6 +29,7 @@ export function dataDir(): string {
 
 const connectionsFile = (): string => path.join(dataDir(), 'connections.json');
 const historyFile = (): string => path.join(dataDir(), 'history.json');
+const projectsFile = (): string => path.join(dataDir(), 'projects.json');
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -96,6 +98,53 @@ export function changeConnections<T>(
   return exclusive(async () => {
     const { list, result } = change(await listConnections());
     await writeJson(connectionsFile(), { version: 1, connections: list });
+    return result;
+  });
+}
+
+/**
+ * Đọc bản nhớ theo dự án. File hỏng chỉ làm mất bản nhớ (ghi log), không chặn cả panel.
+ *
+ * Returns:
+ *   Map từ đường dẫn dự án sang bản nhớ đã làm sạch.
+ */
+export async function listProjects(): Promise<ProjectsMap> {
+  let data: unknown;
+  try {
+    data = await readJson(projectsFile());
+  } catch (error) {
+    if (error instanceof HttpError && error.code === 'STORE_CORRUPT') {
+      console.error('mongo-studio: projects.json hỏng, bỏ qua bản nhớ theo dự án');
+      return {};
+    }
+    throw error;
+  }
+  const projects = (data as { projects?: unknown } | null)?.projects;
+  if (typeof projects !== 'object' || projects === null || Array.isArray(projects)) return {};
+  const result: ProjectsMap = {};
+  for (const [key, value] of Object.entries(projects)) {
+    const memory = sanitizeMemory(value);
+    if (memory && key.startsWith('/')) result[key] = memory;
+  }
+  return result;
+}
+
+/**
+ * Đọc rồi ghi lại bản nhớ theo dự án trong một thao tác không bị xen ngang. Không ghi nếu không đổi.
+ *
+ * Args:
+ *   change: Nhận bản nhớ hiện tại, trả về bản nhớ mới và kết quả cho caller.
+ *
+ * Returns:
+ *   Kết quả do change trả về.
+ */
+export function changeProjects<T>(change: (map: ProjectsMap) => { map: ProjectsMap; result: T }): Promise<T> {
+  return exclusive(async () => {
+    const before = await listProjects();
+    const { map, result } = change(before);
+    if (JSON.stringify(map) !== JSON.stringify(before)) {
+      await writeJson(projectsFile(), { version: 1, projects: map });
+    }
     return result;
   });
 }

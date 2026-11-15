@@ -3,7 +3,8 @@
  */
 import { badRequest, HttpError, notFound } from '../errors.ts';
 import { parseLiteral, QuerySyntaxError, type Obj } from '../../shared/query-parser.ts';
-import { listConnections, type ConnectionRecord } from '../store.ts';
+import { findConnection } from '../detected.ts';
+import type { ConnectionRecord } from '../store.ts';
 import { type Body, requireString } from '../validate.ts';
 
 /** Ngân sách ký tự cho danh sách document gửi về page (phản hồi tối đa 8 MB). */
@@ -11,7 +12,7 @@ export const RESPONSE_BUDGET = 6_000_000;
 
 /** Tìm connection theo id; ném 404 nếu đã bị xoá. */
 export async function requireRecord(id: string): Promise<ConnectionRecord> {
-  const record = (await listConnections()).find((item) => item.id === id);
+  const record = await findConnection(id);
   if (!record) throw notFound('Không tìm thấy connection này. Tải lại danh sách rồi thử lại.');
   return record;
 }

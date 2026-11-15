@@ -11,6 +11,7 @@ import { type Ctx, messageOf, type ToastKind } from './context.ts';
 import { confirmDialog } from './dialogs.ts';
 import { append, h, slot } from './dom.ts';
 import { createQueryView } from './query-view.ts';
+import { startProjectConnect } from './project.ts';
 import { mountSidebar } from './sidebar.ts';
 import { forgetConnectionCache, loadConnections, tree } from './state.ts';
 
@@ -62,6 +63,8 @@ export function startWorkspace(options: StartOptions): void {
   const queryBtnSlot = slot('ms-slot ms-slot-inline');
   append(topbar, treeToggle, h('span', 'ms-brand', 'Mongo Studio'), h('span', 'ms-spacer'), addSlot, queryBtnSlot);
 
+  const projectSlot = slot('ms-slot ms-slot-banner');
+  projectSlot.hidden = true;
   const body = h('div', 'ms-body');
   const sidebar = h('aside', 'ms-sidebar');
   sidebar.appendChild(h('div', 'ms-section-head', 'Connections'));
@@ -79,7 +82,7 @@ export function startWorkspace(options: StartOptions): void {
   const emptyMain = slot('ms-slot ms-main-empty');
   append(main, tabbar, tabBody, emptyMain);
   append(body, sidebar, main);
-  append(app, topbar, body);
+  append(app, topbar, projectSlot, body);
   root.appendChild(app);
 
   // Trạng thái tab.
@@ -241,5 +244,6 @@ export function startWorkspace(options: StartOptions): void {
 
   mountSidebar(sidebarBody, ctx);
   showActive();
+  startProjectConnect({ host, api, slot: projectSlot });
   void loadConnections(api);
 }
