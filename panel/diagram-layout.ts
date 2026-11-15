@@ -171,3 +171,35 @@ export function searchNames(names: string[], query: string): string[] {
   if (needle === '') return names;
   return names.filter((name) => name.toLowerCase().includes(needle));
 }
+
+export type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * Đường cong nối hai thẻ: xuất phát từ cạnh gần nhất, tại tâm chiều cao của thẻ.
+ * Nhãn quan hệ đặt ở giữa đường nối.
+ */
+export function edgeGeometry(from: Box, to: Box): { d: string; labelX: number; labelY: number } {
+  const rightward = to.x >= from.x;
+  const x1 = rightward ? from.x + from.width : from.x;
+  const x2 = rightward ? to.x : to.x + to.width;
+  const y1 = from.y + from.height / 2;
+  const y2 = to.y + to.height / 2;
+  const reach = Math.max(40, Math.abs(x2 - x1) / 2) * (rightward ? 1 : -1);
+  return {
+    d: `M ${x1} ${y1} C ${x1 + reach} ${y1}, ${x2 - reach} ${y2}, ${x2} ${y2}`,
+    labelX: (x1 + x2) / 2,
+    labelY: (y1 + y2) / 2,
+  };
+}
+
+/** Vị trí sau khi kéo: các thẻ có override dùng vị trí đó, còn lại giữ bố cục gốc. Không sửa bản gốc. */
+export function applyOverrides(positions: Map<string, Point>, overrides: Map<string, Point>): Map<string, Point> {
+  const merged = new Map(positions);
+  for (const [id, point] of overrides) merged.set(id, { x: point.x, y: point.y });
+  return merged;
+}
+
+/** Quan hệ được vẽ khi công tắc "Hiển thị quan hệ" bật; tắt thì không vẽ cạnh nào. */
+export function filterRelations<T>(relations: T[], show: boolean): T[] {
+  return show ? relations : [];
+}

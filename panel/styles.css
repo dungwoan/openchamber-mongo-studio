@@ -311,20 +311,39 @@
   .ms-section-head { display: none; }
 }
 
-/* Sơ đồ database */
+/* Sơ đồ database: màu lấy từ biến theme (sáng và tối). */
 .ms-diagram { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; padding: 8px; box-sizing: border-box; }
 .ms-diagram-toolbar { display: flex; flex-direction: column; gap: 6px; }
 .ms-diagram-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ms-diagram-info { font-size: 0.75rem; color: var(--oc-muted, inherit); }
-.ms-diagram-canvas { position: relative; height: 480px; border: 1px solid var(--oc-border, #ccc); border-radius: 8px; overflow: hidden; }
+.ms-diagram-canvas { position: relative; height: 480px; border: 1px solid var(--oc-border, #ccc); border-radius: 8px; overflow: hidden; background: var(--oc-bg, #fff); }
 .ms-diagram-svg { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; user-select: none; }
 .ms-diagram-fullscreen { position: fixed; inset: 0; z-index: 50; background: var(--oc-bg, #fff); padding: 12px; }
 .ms-diagram-fullscreen .ms-diagram-canvas { flex: 1 1 auto; height: auto; min-height: 0; }
 .ms-diagram-fullscreen .ms-diagram-svg { position: absolute; inset: 0; }
+.ms-dg-node { cursor: default; }
+.ms-dg-header { fill: var(--oc-primary, #2f6bff); cursor: move; }
+.ms-dg-title { font-size: 12px; font-weight: 600; fill: var(--oc-primary-fg, #fff); pointer-events: none; }
 .ms-dg-card { fill: var(--oc-elevated, var(--oc-bg, #fff)); stroke: var(--oc-border, #bbb); stroke-width: 1; }
-.ms-dg-card-inferred { stroke-dasharray: 5 3; }
-.ms-dg-title { font-size: 13px; font-weight: 600; fill: var(--oc-fg, #222); }
-.ms-dg-field { font-size: 11px; fill: var(--oc-fg, #333); font-family: var(--oc-mono, monospace); }
-.ms-dg-edge { fill: none; stroke: var(--oc-primary, #2f6bff); stroke-width: 1.5; }
-.ms-dg-edge-inferred { stroke: var(--oc-muted, #888); stroke-dasharray: 6 4; }
-.ms-dg-edge-label { font-size: 10px; fill: var(--oc-muted, #666); }
+.ms-dg-card-inferred { stroke: var(--oc-warning, #d98e04); stroke-dasharray: 5 3; }
+.ms-dg-sep { stroke: var(--oc-border, #bbb); stroke-width: 1; }
+.ms-dg-row-alt { fill: var(--oc-muted-surface, transparent); opacity: 0.5; }
+.ms-dg-pk { font-size: 9px; font-weight: 700; font-family: var(--oc-mono, monospace); fill: var(--oc-warning-text, #8a5a00); }
+.ms-dg-name { font-size: 11px; font-family: var(--oc-mono, monospace); fill: var(--oc-fg, #222); }
+.ms-dg-req { font-weight: 700; }
+.ms-dg-type { font-size: 11px; font-family: var(--oc-mono, monospace); fill: var(--oc-primary-text, #2f6bff); }
+.ms-dg-type-mixed { fill: var(--oc-muted, #888); font-style: italic; opacity: 0.7; }
+.ms-dg-more { font-size: 10px; font-style: italic; fill: var(--oc-muted, #888); }
+.ms-dg-edge { fill: none; stroke-width: 1.6; }
+.ms-dg-edge-declared { stroke: var(--oc-primary, #2f6bff); }
+.ms-dg-edge-inferred { stroke: var(--oc-warning, #d98e04); stroke-dasharray: 6 4; stroke-width: 1.4; }
+.ms-dg-arrow-declared { fill: var(--oc-primary, #2f6bff); }
+.ms-dg-arrow-inferred { fill: var(--oc-warning, #d98e04); }
+.ms-dg-edge-labelbg { fill: var(--oc-bg, #fff); stroke: var(--oc-border, #ccc); stroke-width: 0.5; }
+.ms-dg-edge-label { font-size: 10px; font-family: var(--oc-mono, monospace); fill: var(--oc-fg, #333); pointer-events: none; }
+
+/* Cột trái: mục Diagrams */
+.ms-diagram-list { padding: 4px 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.ms-diagram-item { display: block; width: 100%; text-align: left; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 0.8125rem; cursor: pointer; }
+.ms-diagram-item:hover { background: var(--oc-hover, rgba(127, 127, 127, 0.12)); }
+.ms-diagram-item-current { font-weight: 600; }

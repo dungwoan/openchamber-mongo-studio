@@ -7,6 +7,7 @@ import type { ConnectionView } from '../shared/api.ts';
 import { type Api, type GuestHost } from './api.ts';
 import { createCollectionView } from './collection-view.ts';
 import { createDiagramView } from './diagram-view.ts';
+import { diagramEntries } from './diagram-list.ts';
 import { openConnectionDialog } from './connection-dialog.ts';
 import { type Ctx, messageOf, type ToastKind } from './context.ts';
 import { confirmDialog } from './dialogs.ts';
@@ -14,7 +15,7 @@ import { append, h, slot } from './dom.ts';
 import { createQueryView } from './query-view.ts';
 import { startProjectConnect } from './project.ts';
 import { mountSidebar } from './sidebar.ts';
-import { forgetConnectionCache, loadConnections, tree } from './state.ts';
+import { forgetConnectionCache, loadConnections, subscribe, tree } from './state.ts';
 
 /** Giới hạn ký tự của host.writeClipboard. */
 const CLIPBOARD_MAX = 32000;
@@ -72,6 +73,9 @@ export function startWorkspace(options: StartOptions): void {
   sidebar.appendChild(h('div', 'ms-section-head', 'Connections'));
   const sidebarBody = h('div', 'ms-sidebar-body');
   sidebar.appendChild(sidebarBody);
+  sidebar.appendChild(h('div', 'ms-section-head', 'Diagrams'));
+  const diagramsBody = h('div', 'ms-diagram-list');
+  sidebar.appendChild(diagramsBody);
 
   const main = h('main', 'ms-main');
   const tabbar = h('div', 'ms-tabbar');
@@ -128,6 +132,7 @@ export function startWorkspace(options: StartOptions): void {
   }
 
   function showActive(): void {
+    renderDiagramList();
     for (const tab of tabs) tab.element.hidden = tab.id !== activeId;
     const empty = tabs.length === 0;
     emptyMain.hidden = !empty;
@@ -176,13 +181,26 @@ export function startWorkspace(options: StartOptions): void {
     addTab({ key: null, connectionId: seed?.connectionId ?? null, label: `Query ${number}`, element: view.element, dispose: view.dispose });
   }
 
-  /** Tab Sơ đồ của thư mục dự án đang mở: một tab cho mỗi thư mục. */
-  function openDiagram(): void {
-    const directory = tree.directory;
-    if (directory === null) {
-      toast('info', 'Mở Mongo Studio trong một dự án để xem sơ đồ database.');
+  /** Mục Diagrams: dự án đang mở và các dự án có tab sơ đồ đang mở. */
+  function renderDiagramList(): void {
+    const open = tabs.filter((tab) => tab.key?.startsWith('diagram:')).map((tab) => (tab.key as string).slice('diagram:'.length));
+    const entries = diagramEntries(tree.directory, open);
+    diagramsBody.replaceChildren();
+    if (entries.length === 0) {
+      diagramsBody.appendChild(h('div', 'ms-tree-note ms-muted', 'Mở một dự án để xem sơ đồ database.'));
       return;
     }
+    for (const entry of entries) {
+      const item = h('button', entry.current ? 'ms-diagram-item ms-diagram-item-current' : 'ms-diagram-item', entry.label);
+      item.type = 'button';
+      item.title = entry.directory;
+      item.addEventListener('click', () => openDiagram(entry.directory));
+      diagramsBody.appendChild(item);
+    }
+  }
+
+  /** Tab Sơ đồ của một thư mục dự án: một tab cho mỗi thư mục. */
+  function openDiagram(directory: string): void {
     const key = `diagram:${directory}`;
     const existing = tabs.find((tab) => tab.key === key);
     if (existing) {
@@ -258,7 +276,17 @@ export function startWorkspace(options: StartOptions): void {
   };
 
   mountButton(addSlot, { label: 'Add connection', size: 'sm', onClick: addConnection });
-  mountButton(diagramBtnSlot, { label: 'Diagram', variant: 'outline', size: 'sm', onClick: openDiagram });
+  mountButton(diagramBtnSlot, {
+    label: 'Diagram',
+    variant: 'outline',
+    size: 'sm',
+    onClick: () => {
+      if (tree.directory === null) toast('info', 'Mở Mongo Studio trong một dự án để xem sơ đồ database.');
+      else openDiagram(tree.directory);
+    },
+  });
+  subscribe(renderDiagramList);
+  renderDiagramList();
   mountButton(queryBtnSlot, { label: '+ Query', variant: 'outline', size: 'sm', onClick: () => openQuery() });
   treeToggle.setAttribute('aria-label', 'Hiện hoặc ẩn danh sách connection');
 

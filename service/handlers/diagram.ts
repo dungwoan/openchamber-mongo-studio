@@ -54,7 +54,7 @@ async function reportFolder(dir: ProjectDir, create: boolean): Promise<string | 
       info = await lstat(current);
     }
     if (info.isSymbolicLink() || !info.isDirectory()) {
-      throw new HttpError(400, 'UNSAFE_PATH', 'Thư mục .openchamber/mongo-studio trong dự án không an toàn (symlink hoặc không phải thư mục).');
+      throw new HttpError(400, 'UNSAFE_PATH', 'Không thể ghi báo cáo: .openchamber/mongo-studio trong dự án là symlink hoặc không phải thư mục, nên không ghi được báo cáo. Xoá hoặc đổi tên mục đó rồi thử lại.');
     }
   }
   return current;

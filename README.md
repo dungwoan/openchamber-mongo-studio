@@ -54,8 +54,11 @@ If the URI's host cannot be resolved from this machine (for example `mongo`, the
 
 The **Diagram** button opens a tab that draws the collections and relations of the open project. Mongo Studio reads source files only (`.ts`, `.js`, `.mjs`, `.php`, `.prisma`, `.json`; up to 6 folder levels, 2000 files, 256 KB each). `node_modules`, `vendor`, `dist`, `build`, `.git`, hidden folders and `venv*` are skipped. Detectors: Laravel (laravel-mongodb), Mongoose, TypeORM, Prisma (MongoDB provider only) and `$jsonSchema` files.
 
-- Solid lines and solid cards come from declarations in code. Dashed lines and dashed cards are inferred, for example a `customer_id` field pointing to `customers`. Inferred relations are hidden until you turn on **Cạnh suy đoán**.
-- **Ghi báo cáo vào dự án** writes `.openchamber/mongo-studio/schema-scan.json` into the project. Mongo Studio never edits `.gitignore`; add `.openchamber/` yourself.
+- The **Diagrams** category in the left column lists the open project; click it to open its diagram tab.
+- Solid lines and solid table headers come from declarations in code. Dashed lines and dashed cards are inferred from field names, for example a `customer_id` field pointing to `customers`. Each relation line has its own colour (blue for declared, amber for inferred) and an arrowhead.
+- **Hiển thị quan hệ** shows or hides all relation lines (on by default). Turning it off removes every edge; the tables stay.
+- Drag a table by its header to move it; the lines follow. **Sắp xếp lại** restores the automatic layout. Dragged positions are kept only for the current panel session and are not saved.
+- **Ghi báo cáo dự án** (one click) writes `.openchamber/mongo-studio/schema-scan.json` into the project and confirms the path. Mongo Studio never edits `.gitignore`; add `.openchamber/` yourself. If `.openchamber` is a symlink, the write is refused with an explanation.
 - When no models are found, **Nhờ agent bổ sung** puts a prompt into the chat composer, replacing its current text (it is not sent). The prompt asks the agent to write `.openchamber/mongo-studio/schema-report.json`, which Mongo Studio validates and merges into the diagram. This uses the `prompt` capability, approved at install.
 - With more than 80 collections, use the search box or pick a centre collection and a number of steps.
 

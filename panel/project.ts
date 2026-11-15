@@ -121,6 +121,7 @@ export function startProjectConnect(options: Options): void {
     if (directory === tree.directory) return;
     seq += 1;
     tree.directory = directory;
+    emit();
     clear();
     void loadConnections(api);
     if (directory !== null) void autoConnect(directory, seq);

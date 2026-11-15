@@ -54,8 +54,11 @@ Nếu tên host trong URI không phân giải được trên máy này (ví dụ
 
 Nút **Diagram** mở một tab vẽ các collection và quan hệ của dự án đang mở. Mongo Studio chỉ đọc file mã nguồn (`.ts`, `.js`, `.mjs`, `.php`, `.prisma`, `.json`; tối đa 6 cấp thư mục, 2000 file, mỗi file 256 KB). Bỏ qua `node_modules`, `vendor`, `dist`, `build`, `.git`, thư mục ẩn và `venv*`. Bộ nhận diện: Laravel (laravel-mongodb), Mongoose, TypeORM, Prisma (chỉ provider MongoDB) và file `$jsonSchema`.
 
-- Nét liền và thẻ liền là khai báo trong code. Nét đứt và thẻ đứt là suy đoán, ví dụ field `customer_id` trỏ tới `customers`. Quan hệ suy đoán bị ẩn cho tới khi bạn bật **Cạnh suy đoán**.
-- **Ghi báo cáo vào dự án** ghi `.openchamber/mongo-studio/schema-scan.json` vào dự án. Mongo Studio không bao giờ sửa `.gitignore`; bạn tự thêm dòng `.openchamber/`.
+- Mục **Diagrams** ở cột trái liệt kê dự án đang mở; bấm vào để mở tab sơ đồ.
+- Dải tiêu đề liền và nét liền là khai báo trong code. Nét đứt và thẻ đứt là suy ra từ tên field, ví dụ field `customer_id` trỏ tới `customers`. Mỗi đường quan hệ có màu riêng (xanh cho khai báo, cam cho suy ra) và mũi tên.
+- **Hiển thị quan hệ** bật hoặc tắt toàn bộ đường quan hệ (mặc định bật). Tắt thì không còn cạnh nào; các thẻ bảng vẫn giữ nguyên.
+- Kéo bảng bằng dải tiêu đề để di chuyển; đường nối đi theo. **Sắp xếp lại** đưa về bố cục tự động. Vị trí đã kéo chỉ giữ trong phiên panel hiện tại, không được lưu.
+- **Ghi báo cáo dự án** (một lần bấm) ghi `.openchamber/mongo-studio/schema-scan.json` vào dự án và báo đường dẫn. Mongo Studio không bao giờ sửa `.gitignore`; bạn tự thêm dòng `.openchamber/`. Nếu `.openchamber` là symlink, việc ghi bị từ chối kèm giải thích.
 - Khi không tìm thấy model nào, **Nhờ agent bổ sung** đặt một lời nhắc vào ô nhập của chat, thay nội dung hiện có (không gửi). Lời nhắc yêu cầu agent ghi `.openchamber/mongo-studio/schema-report.json`; Mongo Studio kiểm tra file đó rồi gộp vào sơ đồ. Tính năng này dùng capability `prompt`, cần được duyệt khi cài.
 - Khi có hơn 80 collection, dùng ô tìm kiếm hoặc chọn một collection trung tâm và số bước lân cận.
 

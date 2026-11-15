@@ -93,3 +93,45 @@ describe('searchNames', () => {
     expect(searchNames(['a', 'b'], '  ')).toEqual(['a', 'b']);
   });
 });
+
+import { applyOverrides, edgeGeometry, filterRelations } from './diagram-layout.ts';
+
+describe('edgeGeometry (cạnh nối giữa hai thẻ)', () => {
+  test('nối từ cạnh phải của thẻ trái sang cạnh trái của thẻ phải, tại tâm chiều cao', () => {
+    const g = edgeGeometry({ x: 0, y: 0, width: 100, height: 50 }, { x: 200, y: 100, width: 100, height: 50 });
+    expect(g.d.startsWith('M 100 25 ')).toBe(true);
+    expect(g.d.endsWith(' 200 125')).toBe(true);
+    expect(g.labelX).toBeGreaterThan(100);
+    expect(g.labelX).toBeLessThan(200);
+  });
+
+  test('thẻ đích nằm bên trái: nối từ cạnh trái sang cạnh phải', () => {
+    const g = edgeGeometry({ x: 300, y: 0, width: 100, height: 50 }, { x: 0, y: 0, width: 100, height: 50 });
+    expect(g.d.startsWith('M 300 25 ')).toBe(true);
+    expect(g.d.endsWith(' 100 25')).toBe(true);
+  });
+});
+
+describe('applyOverrides (kéo thẻ không đổi bố cục gốc)', () => {
+  test('thẻ được kéo dùng vị trí mới, thẻ khác giữ nguyên, bản gốc không bị sửa', () => {
+    const base = new Map([['a', { x: 0, y: 0 }], ['b', { x: 10, y: 10 }]]);
+    const moved = applyOverrides(base, new Map([['b', { x: 500, y: 300 }]]));
+    expect(moved.get('a')).toEqual({ x: 0, y: 0 });
+    expect(moved.get('b')).toEqual({ x: 500, y: 300 });
+    expect(base.get('b')).toEqual({ x: 10, y: 10 });
+  });
+});
+
+describe('filterRelations (Hiển thị quan hệ bật/tắt)', () => {
+  const list = [
+    { id: 1, confidence: 'declared' as const },
+    { id: 2, confidence: 'inferred' as const },
+  ];
+  test('bật: giữ cả khai báo lẫn suy đoán', () => {
+    expect(filterRelations(list, true)).toHaveLength(2);
+  });
+  test('tắt: không còn quan hệ nào; bật lại thì trở về đầy đủ', () => {
+    expect(filterRelations(list, false)).toHaveLength(0);
+    expect(filterRelations(list, true)).toHaveLength(2);
+  });
+});

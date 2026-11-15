@@ -1,25 +1,40 @@
 /**
  * Tab Sơ đồ: vẽ các collection và quan hệ bằng SVG tự dựng. Mọi nội dung đi qua textContent (không innerHTML).
- * Quá 80 bảng thì chỉ vẽ khi có tìm kiếm hoặc chọn bảng trung tâm (N bước). Cạnh suy đoán tắt mặc định.
+ * Thẻ kéo được bằng header; vị trí giữ trong bộ nhớ phiên (không localStorage). Pan/zoom nằm trên nền khung.
+ * Quá 80 bảng thì chỉ vẽ khi có tìm kiếm hoặc chọn bảng trung tâm (N bước).
  */
 import { mountBanner, mountButton, mountEmpty, mountSearchField, mountSelect, mountSwitch } from '@openchamber/sdk/ui';
 
 import type { DiagramGetResponse, DiagramScanResponse, SchemaCollection, SchemaReport, SchemaRelation } from '../shared/api.ts';
-import { groupShards, layout, neighborhood, searchNames, type Edge, type Point } from './diagram-layout.ts';
+import {
+  applyOverrides,
+  edgeGeometry,
+  filterRelations,
+  groupShards,
+  layout,
+  neighborhood,
+  searchNames,
+  type Edge,
+  type Point,
+} from './diagram-layout.ts';
 import type { Ctx } from './context.ts';
 import { messageOf } from './context.ts';
 import { confirmDialog } from './dialogs.ts';
 import { append, h, slot } from './dom.ts';
 
 const MAX_VISIBLE = 80;
-const CARD_WIDTH = 230;
-const HEADER = 28;
+const CARD_WIDTH = 240;
+const HEADER = 26;
 const ROW = 18;
 const MAX_FIELDS = 12;
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const ARROW_DECLARED = 'ms-dg-arrow-declared';
+const ARROW_INFERRED = 'ms-dg-arrow-inferred';
 
 type Handle = { dispose(): void };
 type Card = { id: string; label: string; width: number; height: number; fields: SchemaCollection['fields']; more: number; inferred: boolean };
+type EdgeView = { path: SVGPathElement; label: SVGTextElement; labelBg: SVGRectElement; from: string; to: string; text: string };
+type Scene = { cards: Map<string, Card>; positions: Map<string, Point>; nodes: Map<string, SVGGElement>; edges: EdgeView[] };
 
 /** Lời nhắc gửi cho agent: ghi đúng đường dẫn và đúng schema v1; không yêu cầu đọc dữ liệu thật. */
 export function agentPrompt(): string {
@@ -34,7 +49,7 @@ export function agentPrompt(): string {
     `- Chỉ ghi JSON đúng schema v1 sau đây: ${skeleton}`,
     '- Không ghi URI, mật khẩu, token hay giá trị dữ liệu thật. Không đọc dữ liệu trong database.',
     '- Tối đa 300 collection, 100 field mỗi collection, 1000 quan hệ. Đường dẫn file phải tương đối, không có "..".',
-    '- Chỉ đưa vào những gì có trong mã nguồn; dùng confidence "inferred" khi chỉ suy đoán.',
+    '- Chỉ đưa vào những gì có trong mã nguồn; dùng confidence "inferred" khi chỉ suy ra từ tên field.',
     'Sau khi ghi xong, báo lại số collection và số quan hệ đã ghi.',
   ].join('\n');
 }
@@ -46,10 +61,7 @@ function svgEl(tag: string, attrs: Record<string, string | number>, className?: 
   return node;
 }
 
-function cardsOf(
-  groups: ReturnType<typeof groupShards>,
-  byName: Map<string, SchemaCollection>,
-): Card[] {
+function cardsOf(groups: ReturnType<typeof groupShards>, byName: Map<string, SchemaCollection>): Card[] {
   return groups.map((group) => {
     const first = byName.get(group.members[0] ?? '');
     const fields = first?.fields ?? [];
@@ -60,7 +72,7 @@ function cardsOf(
       id: group.id,
       label: group.label,
       width: CARD_WIDTH,
-      height: HEADER + rows * ROW + 10,
+      height: HEADER + 6 + rows * ROW + 6,
       fields: shown,
       more,
       inferred: first?.confidence === 'inferred',
@@ -97,8 +109,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   let report: SchemaReport | null = null;
   let hasAgent = false;
   let loading = true;
-  let writeEnabled = false;
-  let showInferred = false;
+  let showRelations = true;
   let query = '';
   let center: string | null = null;
   let hops = 1;
@@ -108,6 +119,9 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
   let loadSeq = 0;
   let viewKey = '';
   let view = { x: 0, y: 0, w: 1000, h: 600 };
+  /** Vị trí thẻ đã kéo trong phiên; "Sắp xếp lại" xoá. */
+  const manual = new Map<string, Point>();
+  let scene: Scene | null = null;
 
   const toolbarSlot = (parent: HTMLElement): HTMLDivElement => {
     const node = slot('ms-slot ms-slot-inline');
@@ -115,18 +129,18 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     return node;
   };
 
-  const scanButton = mountButton(toolbarSlot(rowA), { label: 'Quét lại', variant: 'outline', size: 'sm', onClick: () => void scan() });
-  const writeSwitch = mountSwitch(toolbarSlot(rowA), {
-    label: 'Ghi báo cáo vào dự án',
-    description: 'Lưu .openchamber/mongo-studio/schema-scan.json',
-    checked: false,
-    onChange: (checked: boolean) => { writeEnabled = checked; },
-  });
-  const inferredSwitch = mountSwitch(toolbarSlot(rowA), {
-    label: 'Cạnh suy đoán',
-    description: 'Quan hệ suy ra từ tên field',
-    checked: false,
-    onChange: (checked: boolean) => { showInferred = checked; render(); },
+  const scanButton = mountButton(toolbarSlot(rowA), { label: 'Quét lại', variant: 'outline', size: 'sm', onClick: () => void scan(false) });
+  const writeButton = mountButton(toolbarSlot(rowA), { label: 'Ghi báo cáo dự án', variant: 'secondary', size: 'sm', onClick: () => void scan(true) });
+  // Công tắc có trạng thái do caller giữ: phải commit giá trị đề xuất bằng update, nếu không prop không đổi và click luôn đề xuất true.
+  const relationSwitch = mountSwitch(toolbarSlot(rowA), {
+    label: 'Hiển thị quan hệ',
+    description: 'Vẽ cạnh giữa các bảng',
+    checked: showRelations,
+    onChange: (checked: boolean) => {
+      showRelations = checked;
+      relationSwitch.update({ checked });
+      render();
+    },
   });
   const fullButton = mountButton(toolbarSlot(rowA), { label: 'Toàn màn hình', variant: 'ghost', size: 'sm', onClick: () => toggleFullscreen() });
   const agentSlot = toolbarSlot(rowA);
@@ -161,7 +175,13 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       render();
     },
   });
-  handles.push(scanButton, writeSwitch, inferredSwitch, fullButton, agentButton, search, focus, hopsSelect, clear);
+  const arrange = mountButton(toolbarSlot(rowB), {
+    label: 'Sắp xếp lại',
+    variant: 'ghost',
+    size: 'sm',
+    onClick: () => { manual.clear(); render(); },
+  });
+  handles.push(scanButton, writeButton, relationSwitch, fullButton, agentButton, search, focus, hopsSelect, clear, arrange);
 
   function toggleFullscreen(): void {
     fullscreen = !fullscreen;
@@ -199,9 +219,10 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     }
   }
 
-  async function scan(): Promise<void> {
+  /** Quét lại (write=false) hoặc ghi báo cáo vào dự án (write=true, một lần bấm). */
+  async function scan(write: boolean): Promise<void> {
     try {
-      const reply = await ctx.api.call<DiagramScanResponse>('/diagram/scan', { directory, write: writeEnabled });
+      const reply = await ctx.api.call<DiagramScanResponse>('/diagram/scan', { directory, write });
       gitignore = reply.gitignore;
       ctx.toast('success', reply.written ? `Đã ghi ${reply.written}` : 'Đã quét lại sơ đồ');
       await load();
@@ -233,7 +254,8 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     }
     const detectors = report.source.detectors.join(', ') || 'không có';
     info.textContent = `${report.collections.length} bảng · ${report.relations.length} quan hệ · nguồn: ${detectors}`
-      + `${report.truncated ? ' · đã cắt bớt' : ''}${hasAgent ? ' · có bổ sung của agent' : ''}`;
+      + `${report.truncated ? ' · đã cắt bớt' : ''}${hasAgent ? ' · có bổ sung của agent' : ''}`
+      + ' · nét liền: khai báo trong code; nét đứt: suy ra từ tên field';
     const lines: string[] = [];
     if (gitignore === 'missing') lines.push('Gợi ý: thêm dòng ".openchamber/" vào .gitignore của dự án (Mongo Studio không tự sửa file này).');
     if (gitignore === 'absent') lines.push('Dự án chưa có .gitignore; nếu dùng git, nên thêm ".openchamber/".');
@@ -248,53 +270,101 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     view = { x: minX - 20, y: minY - 20, w: canvas.clientWidth || 700, h: canvas.clientHeight || 480 };
   }
 
-  function drawEdges(svg: SVGElement, relations: SchemaRelation[], positions: Map<string, Point>, cards: Map<string, Card>, groupOf: Map<string, string>): void {
-    for (const relation of relations) {
-      const fromId = groupOf.get(relation.from);
-      const toId = groupOf.get(relation.to);
-      if (!fromId || !toId || fromId === toId) continue;
-      const a = positions.get(fromId);
-      const b = positions.get(toId);
-      const ca = cards.get(fromId);
-      const cb = cards.get(toId);
-      if (!a || !b || !ca || !cb) continue;
-      const leftToRight = b.x >= a.x;
-      const x1 = leftToRight ? a.x + ca.width : a.x;
-      const x2 = leftToRight ? b.x : b.x + cb.width;
-      const y1 = a.y + ca.height / 2;
-      const y2 = b.y + cb.height / 2;
-      const dx = Math.max(40, Math.abs(x2 - x1) / 2) * (leftToRight ? 1 : -1);
-      const path = svgEl('path', { d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`, fill: 'none' },
-        relation.confidence === 'inferred' ? 'ms-dg-edge ms-dg-edge-inferred' : 'ms-dg-edge');
-      svg.appendChild(path);
-      if (relation.field) {
-        const label = svgEl('text', { x: (x1 + x2) / 2, y: (y1 + y2) / 2 - 4, 'text-anchor': 'middle' }, 'ms-dg-edge-label');
-        label.textContent = relation.field;
-        svg.appendChild(label);
-      }
+  /** Vẽ lại đường nối và nhãn của mọi cạnh theo vị trí hiện tại (dùng khi kéo thẻ, không dựng lại SVG). */
+  function updateEdges(): void {
+    if (scene === null) return;
+    for (const edge of scene.edges) {
+      const a = scene.cards.get(edge.from);
+      const b = scene.cards.get(edge.to);
+      const pa = scene.positions.get(edge.from);
+      const pb = scene.positions.get(edge.to);
+      if (!a || !b || !pa || !pb) continue;
+      const geometry = edgeGeometry({ x: pa.x, y: pa.y, width: a.width, height: a.height }, { x: pb.x, y: pb.y, width: b.width, height: b.height });
+      edge.path.setAttribute('d', geometry.d);
+      const textWidth = edge.text.length * 6 + 10;
+      edge.label.setAttribute('x', String(geometry.labelX));
+      edge.label.setAttribute('y', String(geometry.labelY + 4));
+      edge.labelBg.setAttribute('x', String(geometry.labelX - textWidth / 2));
+      edge.labelBg.setAttribute('y', String(geometry.labelY - 9));
     }
   }
 
-  function drawCard(svg: SVGElement, card: Card, at: Point): void {
-    const group = svgEl('g', { transform: `translate(${at.x} ${at.y})` }, 'ms-dg-node');
-    group.appendChild(svgEl('rect', { x: 0, y: 0, width: card.width, height: card.height, rx: 8 }, card.inferred ? 'ms-dg-card ms-dg-card-inferred' : 'ms-dg-card'));
-    const title = svgEl('text', { x: 10, y: 18 }, 'ms-dg-title');
+  function drawEdges(svg: SVGElement, relations: SchemaRelation[], groupOf: Map<string, string>, cardIds: Set<string>): EdgeView[] {
+    const drawn: EdgeView[] = [];
+    for (const relation of relations) {
+      const from = groupOf.get(relation.from);
+      const to = groupOf.get(relation.to);
+      if (!from || !to || from === to || !cardIds.has(from) || !cardIds.has(to)) continue;
+      const inferred = relation.confidence === 'inferred';
+      const path = svgEl('path', { fill: 'none', 'marker-end': `url(#${inferred ? ARROW_INFERRED : ARROW_DECLARED})` },
+        inferred ? 'ms-dg-edge ms-dg-edge-inferred' : 'ms-dg-edge ms-dg-edge-declared') as SVGPathElement;
+      const labelBg = svgEl('rect', { width: 0, height: 14, rx: 3 }, 'ms-dg-edge-labelbg') as SVGRectElement;
+      const label = svgEl('text', { 'text-anchor': 'middle' }, 'ms-dg-edge-label') as SVGTextElement;
+      const text = relation.field ?? relation.kind;
+      label.textContent = text;
+      svg.append(path, labelBg, label);
+      drawn.push({ path, label, labelBg, from, to, text });
+    }
+    return drawn;
+  }
+
+  function markers(): SVGElement {
+    const defs = svgEl('defs', {});
+    for (const [id, className] of [[ARROW_DECLARED, 'ms-dg-arrow-declared'], [ARROW_INFERRED, 'ms-dg-arrow-inferred']] as const) {
+      const marker = svgEl('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' });
+      marker.appendChild(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z' }, className));
+      defs.appendChild(marker);
+    }
+    return defs;
+  }
+
+  function drawCard(svg: SVGElement, card: Card, at: Point, nodes: Map<string, SVGGElement>): void {
+    const group = svgEl('g', { transform: `translate(${at.x} ${at.y})` }, 'ms-dg-node') as SVGGElement;
+    group.appendChild(svgEl('rect', { x: 0, y: 0, width: card.width, height: card.height, rx: 8 },
+      card.inferred ? 'ms-dg-card ms-dg-card-inferred' : 'ms-dg-card'));
+    card.fields.forEach((_field, index) => {
+      const top = HEADER + 6 + index * ROW;
+      if (index % 2 === 1) group.appendChild(svgEl('rect', { x: 1, y: top, width: card.width - 2, height: ROW }, 'ms-dg-row-alt'));
+    });
+    const header = svgEl('rect', { x: 0, y: 0, width: card.width, height: HEADER, rx: 8 }, 'ms-dg-header');
+    group.appendChild(header);
+    const title = svgEl('text', { x: 10, y: 17 }, 'ms-dg-title');
     title.textContent = card.label;
     group.appendChild(title);
+    group.appendChild(svgEl('line', { x1: 0, y1: HEADER, x2: card.width, y2: HEADER }, 'ms-dg-sep'));
     card.fields.forEach((field, index) => {
-      const row = svgEl('text', { x: 10, y: HEADER + index * ROW + 12 }, 'ms-dg-field');
-      row.textContent = `${field.name}  ${field.type}${field.pk ? ' · pk' : ''}${field.required ? ' · *' : ''}`;
-      group.appendChild(row);
+      const baseline = HEADER + 6 + index * ROW + 13;
+      if (field.pk) {
+        const pk = svgEl('text', { x: 10, y: baseline }, 'ms-dg-pk');
+        pk.textContent = 'PK';
+        group.appendChild(pk);
+      }
+      const name = svgEl('text', { x: 34, y: baseline }, field.required ? 'ms-dg-name ms-dg-req' : 'ms-dg-name');
+      name.textContent = field.name;
+      group.appendChild(name);
+      const typeClass = field.type === 'mixed' ? 'ms-dg-type ms-dg-type-mixed' : 'ms-dg-type';
+      const type = svgEl('text', { x: card.width - 10, y: baseline, 'text-anchor': 'end' }, typeClass);
+      type.textContent = field.array ? `${field.type}[]` : field.type;
+      group.appendChild(type);
     });
     if (card.more > 0) {
-      const more = svgEl('text', { x: 10, y: HEADER + card.fields.length * ROW + 12 }, 'ms-dg-field ms-muted');
+      const more = svgEl('text', { x: 10, y: HEADER + 6 + card.fields.length * ROW + 13 }, 'ms-dg-more');
       more.textContent = `+${card.more} more`;
       group.appendChild(more);
     }
+    header.addEventListener('pointerdown', (event: PointerEvent) => {
+      event.stopPropagation();
+      drag = { id: card.id, startX: event.clientX, startY: event.clientY, origin: { ...(scene?.positions.get(card.id) ?? { x: at.x, y: at.y }) } };
+      svg.setPointerCapture(event.pointerId);
+    });
+    nodes.set(card.id, group);
     svg.appendChild(group);
   }
 
-  function attachPanZoom(svg: SVGElement): void {
+  let drag: { id: string; startX: number; startY: number; origin: Point } | null = null;
+  let pan: { x: number; y: number; vx: number; vy: number } | null = null;
+
+  function attachInteractions(svg: SVGElement): void {
     const apply = (): void => svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
     svg.addEventListener('wheel', (event: WheelEvent) => {
       event.preventDefault();
@@ -305,22 +375,36 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
       view = { x: px - (px - view.x) * k, y: py - (py - view.y) * k, w: view.w * k, h: view.h * k };
       apply();
     }, { passive: false });
-    let drag: { x: number; y: number; vx: number; vy: number } | null = null;
     svg.addEventListener('pointerdown', (event: PointerEvent) => {
-      drag = { x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
+      pan = { x: event.clientX, y: event.clientY, vx: view.x, vy: view.y };
       svg.setPointerCapture(event.pointerId);
     });
     svg.addEventListener('pointermove', (event: PointerEvent) => {
-      if (drag === null) return;
       const rect = svg.getBoundingClientRect();
+      if (drag !== null && scene !== null) {
+        const dx = ((event.clientX - drag.startX) / rect.width) * view.w;
+        const dy = ((event.clientY - drag.startY) / rect.height) * view.h;
+        const next = { x: drag.origin.x + dx, y: drag.origin.y + dy };
+        manual.set(drag.id, next);
+        scene.positions.set(drag.id, next);
+        scene.nodes.get(drag.id)?.setAttribute('transform', `translate(${next.x} ${next.y})`);
+        updateEdges();
+        return;
+      }
+      if (pan === null) return;
       view = {
         ...view,
-        x: drag.vx - ((event.clientX - drag.x) / rect.width) * view.w,
-        y: drag.vy - ((event.clientY - drag.y) / rect.height) * view.h,
+        x: pan.vx - ((event.clientX - pan.x) / rect.width) * view.w,
+        y: pan.vy - ((event.clientY - pan.y) / rect.height) * view.h,
       };
       apply();
     });
-    svg.addEventListener('pointerup', () => { drag = null; });
+    const release = (): void => {
+      drag = null;
+      pan = null;
+    };
+    svg.addEventListener('pointerup', release);
+    svg.addEventListener('pointercancel', release);
   }
 
   function render(): void {
@@ -332,7 +416,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     const groupOf = new Map<string, string>();
     for (const group of groups) for (const member of group.members) groupOf.set(member, group.id);
     focus.update({ options: groups.map((g) => ({ id: g.id, label: g.label })) });
-    const relations = report.relations.filter((r) => showInferred || r.confidence === 'declared');
+    const relations = filterRelations(report.relations, showRelations);
     const edges: Edge[] = relations
       .map((r) => ({ from: groupOf.get(r.from) ?? '', to: groupOf.get(r.to) ?? '' }))
       .filter((e) => e.from !== '' && e.to !== '' && e.from !== e.to);
@@ -340,7 +424,8 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     let visible: Set<string> | null;
     if (query.trim() !== '') {
       const names = new Set(searchNames([...byName.keys()], query));
-      const matched = groups.filter((g) => g.id.toLowerCase().includes(query.trim().toLowerCase()) || g.members.some((m) => names.has(m)));
+      const needle = query.trim().toLowerCase();
+      const matched = groups.filter((g) => g.id.toLowerCase().includes(needle) || g.members.some((m) => names.has(m)));
       visible = new Set(matched.flatMap((g) => [...neighborhood(edges, g.id, 1)]));
     } else if (center !== null) {
       visible = neighborhood(edges, center, hops);
@@ -349,6 +434,7 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     }
     for (const handle of canvasHandles.splice(0)) handle.dispose();
     canvas.replaceChildren();
+    scene = null;
     if (visible === null) {
       canvas.appendChild(emptyNode(`Dự án có ${groupIds.length} bảng. Tìm tên bảng hoặc chọn bảng trung tâm để xem sơ đồ.`));
       return;
@@ -384,19 +470,24 @@ export function createDiagramView(ctx: Ctx, directory: string): { element: HTMLE
     const cards = cardsOf(shown, byName);
     const cardById = new Map(cards.map((c) => [c.id, c]));
     const visibleEdges = edges.filter((e) => cardById.has(e.from) && cardById.has(e.to));
-    const positions = layout(cards.map((c) => ({ id: c.id, width: c.width, height: c.height })), visibleEdges);
+    const auto = layout(cards.map((c) => ({ id: c.id, width: c.width, height: c.height })), visibleEdges);
+    const positions = applyOverrides(auto, new Map([...manual].filter(([id]) => cardById.has(id))));
     const key = cards.map((c) => c.id).sort().join('|');
     if (key !== viewKey) {
       viewKey = key;
       fitView(positions, cards);
     }
-    const svg = svgEl('svg', { viewBox: `${view.x} ${view.y} ${view.w} ${view.h}`, role: 'img', 'aria-label': 'Sơ đồ collection' }, 'ms-diagram-svg');
-    drawEdges(svg, relations, positions, cardById, groupOf);
+    const svg = svgEl('svg', { viewBox: `${view.x} ${view.y} ${view.w} ${view.h}`, role: 'img', 'aria-label': 'Sơ đồ collection' }, 'ms-diagram-svg') as SVGSVGElement;
+    svg.appendChild(markers());
+    const nodes = new Map<string, SVGGElement>();
+    const sceneEdges = drawEdges(svg, relations, groupOf, new Set(cardById.keys()));
     for (const card of cards) {
       const at = positions.get(card.id);
-      if (at) drawCard(svg, card, at);
+      if (at) drawCard(svg, card, at, nodes);
     }
-    attachPanZoom(svg);
+    scene = { cards: cardById, positions, nodes, edges: sceneEdges };
+    updateEdges();
+    attachInteractions(svg);
     canvas.appendChild(svg);
   }
 
