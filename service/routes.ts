@@ -8,6 +8,7 @@ import { collectionsRoute, databasesRoute, findRoute, indexesRoute } from './han
 import { deleteRoute as deleteConnectionRoute, disconnectRoute, listRoute, saveRoute, testRoute } from './handlers/connections.ts';
 import { deleteRoute as deleteDocumentRoute, insertRoute, replaceRoute } from './handlers/documents.ts';
 import { historyAddRoute, historyRoute, runRoute } from './handlers/query.ts';
+import { agentReportRoute, getRoute as diagramGetRoute, scanRoute as diagramScanRoute } from './handlers/diagram.ts';
 import { disconnectRoute as projectDisconnectRoute, openRoute as projectOpenRoute, selectRoute as projectSelectRoute } from './handlers/project.ts';
 import type { Body } from './validate.ts';
 import { resolveRoute, searchRoute } from './mentions.ts';
@@ -19,6 +20,9 @@ export const ROUTES: Record<string, Handler> = {
   '/project/open': projectOpenRoute,
   '/project/disconnect': projectDisconnectRoute,
   '/project/select': projectSelectRoute,
+  '/diagram/scan': diagramScanRoute,
+  '/diagram/get': diagramGetRoute,
+  '/diagram/agent-report': agentReportRoute,
   '/connections/save': saveRoute,
   '/connections/delete': deleteConnectionRoute,
   '/connections/disconnect': disconnectRoute,

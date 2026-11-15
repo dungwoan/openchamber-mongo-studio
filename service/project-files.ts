@@ -25,7 +25,7 @@ export const PROJECT_FILES = [
 /** Tên biến được coi là chuỗi kết nối, theo thứ tự ưu tiên. Tên không phân biệt hoa thường. */
 export const URI_KEYS = ['MONGODB_URI', 'MONGO_URI', 'MONGODB_URL', 'DATABASE_URL', 'MONGODB_DSN'] as const;
 
-const MAX_FILE_BYTES = 256 * 1024;
+export const MAX_FILE_BYTES = 256 * 1024;
 /** Số thư mục con tối đa được quét; vượt quá thì chỉ quét cấp gốc. */
 export const MAX_SUBDIRS = 100;
 /** Thư mục con bị loại khỏi quét (ngoài các tên ẩn, venv*, *.egg-info). */

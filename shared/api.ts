@@ -129,3 +129,65 @@ export type HistoryEntry = {
 };
 
 export type HistoryResponse = { entries: HistoryEntry[] };
+
+/** Một field của collection. children dùng cho object lồng (tối đa 3 cấp). */
+export type SchemaField = {
+  name: string;
+  type: string;
+  required: boolean;
+  pk: boolean;
+  array: boolean;
+  /** true khi chỉ suy đoán (ví dụ từ fillable, không có khai báo kiểu). */
+  inferred: boolean;
+  children: SchemaField[];
+};
+
+export type SchemaIndex = { name: string; keys: string[]; unique: boolean; ttl: boolean };
+
+export type SchemaCollection = {
+  name: string;
+  model: string | null;
+  /** Đường dẫn tương đối trong dự án, không có "..", không tuyệt đối. */
+  file: string | null;
+  orm: string;
+  /** declared: có khai báo rõ trong code; inferred: suy ra từ quy ước (tên lớp, tên field). */
+  confidence: 'declared' | 'inferred';
+  origin: 'static' | 'agent';
+  fields: SchemaField[];
+  indexes: SchemaIndex[];
+};
+
+export type SchemaRelation = {
+  from: string;
+  to: string;
+  field: string | null;
+  kind: 'belongsTo' | 'hasMany' | 'hasOne' | 'belongsToMany' | 'reference';
+  confidence: 'declared' | 'inferred';
+};
+
+/** Báo cáo sơ đồ v1: kết quả quét tĩnh, báo cáo của agent, hoặc bản gộp của hai. */
+export type SchemaReport = {
+  version: 1;
+  generatedAt: string;
+  source: { kind: 'static' | 'agent' | 'merged'; detectors: string[] };
+  truncated: boolean;
+  warnings: string[];
+  collections: SchemaCollection[];
+  relations: SchemaRelation[];
+};
+
+export type DiagramScanResponse = {
+  report: SchemaReport;
+  /** Đường dẫn tương đối file đã ghi trong dự án, hoặc null nếu không bật ghi. */
+  written: string | null;
+  /** missing: .gitignore có nhưng chưa có dòng ".openchamber/"; absent: không có .gitignore; present: đã có. */
+  gitignore: 'missing' | 'present' | 'absent';
+};
+
+export type DiagramGetResponse = {
+  report: SchemaReport;
+  /** true khi dự án có file báo cáo của agent (đã được kiểm tra và gộp). */
+  hasAgentReport: boolean;
+};
+
+export type DiagramAgentResponse = { report: SchemaReport | null; warnings: string[] };
