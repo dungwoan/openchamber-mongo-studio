@@ -70,12 +70,13 @@ export function startWorkspace(options: StartOptions): void {
   projectSlot.hidden = true;
   const body = h('div', 'ms-body');
   const sidebar = h('aside', 'ms-sidebar');
-  sidebar.appendChild(h('div', 'ms-section-head', 'Connections'));
-  const sidebarBody = h('div', 'ms-sidebar-body');
-  sidebar.appendChild(sidebarBody);
+  // Thứ tự cột: DIAGRAMS (dự án và sơ đồ đang mở) lên đầu, CONNECTIONS ngay dưới.
   sidebar.appendChild(h('div', 'ms-section-head', 'Diagrams'));
   const diagramsBody = h('div', 'ms-diagram-list');
   sidebar.appendChild(diagramsBody);
+  sidebar.appendChild(h('div', 'ms-section-head', 'Connections'));
+  const sidebarBody = h('div', 'ms-sidebar-body');
+  sidebar.appendChild(sidebarBody);
 
   const main = h('main', 'ms-main');
   const tabbar = h('div', 'ms-tabbar');

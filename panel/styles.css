@@ -308,7 +308,6 @@
   .ms-app[data-tree="closed"] .ms-sidebar { display: none; }
   .ms-main { min-height: 280px; }
   .ms-field-grid { grid-template-columns: 1fr 1fr; }
-  .ms-section-head { display: none; }
 }
 
 /* Sơ đồ database: màu lấy từ biến theme (sáng và tối). */
