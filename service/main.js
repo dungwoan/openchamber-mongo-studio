@@ -29869,6 +29869,22 @@ var UNREACHABLE = "Không kết nối được tới MongoDB sau 5 giây. Kiểm
 var NETWORK = "Mất kết nối mạng tới MongoDB. Kiểm tra mạng hoặc VPN, rồi thử lại. Kết nối sẽ được mở lại ở lần sau.";
 var AUTH_FAILED = "Sai tên đăng nhập hoặc mật khẩu, hoặc authSource không đúng. Kiểm tra lại URI (phần user:password@ và ?authSource=).";
 var INVALID_URI = "URI không hợp lệ. Dạng đúng: mongodb://user:pass@host:27017/?authSource=admin hoặc mongodb+srv://...";
+var DNS_CODES = new Set(["EAI_AGAIN", "ENOTFOUND"]);
+function dnsFailure(error) {
+  let current = error;
+  for (let depth = 0;depth < 5 && typeof current === "object" && current !== null; depth += 1) {
+    const code = current.code;
+    if (typeof code === "string" && DNS_CODES.has(code))
+      return true;
+    current = current.cause;
+  }
+  return false;
+}
+function unresolvableHost(uri) {
+  const first = hostsOf(uri ?? "").split(",")[0] ?? "";
+  const host = first.replace(/:\d+$/, "");
+  return new HttpError(424, "UNRESOLVABLE_HOST", `Không phân giải được host "${host}" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.`);
+}
 function driverErrorOf(error) {
   if (typeof error !== "object" || error === null)
     return null;
@@ -29909,6 +29925,8 @@ function toHttpError(error, uri = null, context = "query") {
   }
   const driverError = driverErrorOf(error);
   if (driverError) {
+    if (context === "connect" && dnsFailure(error))
+      return unresolvableHost(uri);
     return connectionProblem(driverError, context) ?? operationProblem(driverError, uri);
   }
   return new HttpError(500, "INTERNAL", "Lỗi nội bộ của Mongo Studio. Xem log của OpenChamber để biết thêm.");
@@ -30779,7 +30797,7 @@ function fieldLines(docs) {
 }
 
 // service/project-files.ts
-import { readFile as readFile2, realpath, stat } from "node:fs/promises";
+import { readdir, readFile as readFile2, realpath, stat } from "node:fs/promises";
 import path3 from "node:path";
 
 // service/env-file.ts
@@ -30865,6 +30883,8 @@ var PROJECT_FILES = [
 ];
 var URI_KEYS = ["MONGODB_URI", "MONGO_URI", "MONGODB_URL", "DATABASE_URL", "MONGODB_DSN"];
 var MAX_FILE_BYTES = 256 * 1024;
+var MAX_SUBDIRS = 100;
+var SKIP_DIR_NAMES = new Set(["node_modules", "vendor", "dist", "build", ".git", "__pycache__"]);
 var MAX_PATH = 4096;
 var MONGO_SCHEME = /^mongodb(\+srv)?:\/\//;
 function badDirectory() {
@@ -30941,14 +30961,44 @@ function pickUri(files) {
   }
   return invalid;
 }
-async function detectProjectUri(dir) {
-  const files = [];
-  for (const name of PROJECT_FILES) {
-    const text = await readAllowed(dir, name);
-    if (text !== null)
-      files.push({ name, text });
+function isScannedSubdir(name) {
+  if (name.startsWith(".") || SKIP_DIR_NAMES.has(name))
+    return false;
+  return !(name.startsWith("venv") || name.endsWith(".egg-info"));
+}
+async function scannedSubdirs(dir) {
+  let entries;
+  try {
+    entries = await readdir(dir.real, { withFileTypes: true });
+  } catch {
+    return [];
   }
-  return pickUri(files);
+  const names = entries.filter((entry) => entry.isDirectory() && isScannedSubdir(entry.name)).map((entry) => entry.name).sort();
+  if (names.length > MAX_SUBDIRS) {
+    console.warn(`mongo-studio: dự án có ${names.length} thư mục con, chỉ quét cấp gốc`);
+    return [];
+  }
+  return names;
+}
+async function readAll(dir, relatives) {
+  const files = [];
+  for (const rel of relatives) {
+    const text = await readAllowed(dir, rel);
+    if (text !== null)
+      files.push({ name: rel, text });
+  }
+  return files;
+}
+async function detectProjectUri(dir) {
+  const root = await readAll(dir, [...PROJECT_FILES]);
+  const rootResult = pickUri(root);
+  if (rootResult?.kind === "found")
+    return rootResult;
+  const subdirs = await scannedSubdirs(dir);
+  if (subdirs.length === 0)
+    return rootResult;
+  const nested = await readAll(dir, subdirs.flatMap((sub) => PROJECT_FILES.map((file) => `${sub}/${file}`)));
+  return pickUri([...root, ...nested]);
 }
 
 // service/handlers/project.ts

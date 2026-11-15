@@ -47,11 +47,11 @@ function errorBanner(reply: Extract<ProjectConnectResponse, { status: 'error' }>
     : reply.code === 'INVALID_URI'
       ? `Chuỗi kết nối trong ${reply.sourceFile ?? 'file cấu hình'} không hợp lệ`
       : `Không tự kết nối được (từ ${reply.sourceFile ?? 'file cấu hình'})`;
-  return {
-    tone: 'error',
-    title,
-    body: `${reply.error} Sửa cấu hình rồi mở lại panel, hoặc chọn connection khác trong cây.`,
-  };
+  // Thông báo host không phân giải được đã có sẵn hướng xử lý; các lỗi khác thêm hướng chung.
+  const body = reply.code === 'UNRESOLVABLE_HOST'
+    ? reply.error
+    : `${reply.error} Sửa cấu hình rồi mở lại panel, hoặc chọn connection khác trong cây.`;
+  return { tone: 'error', title, body };
 }
 
 /**

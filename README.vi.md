@@ -44,9 +44,11 @@ Sau đó thêm thư mục này trong Settings → Extensions.
 Khi panel mở trong một thư mục dự án, Mongo Studio tự kết nối tới database của dự án đó, theo thứ tự:
 
 1. Connection bạn chọn gần nhất cho dự án này, nếu nó vẫn còn được lưu.
-2. Nếu không có, lấy giá trị `MONGODB_URI`, `MONGO_URI`, `MONGODB_URL`, `DATABASE_URL` hoặc `MONGODB_DSN` bắt đầu bằng `mongodb://` hoặc `mongodb+srv://`, đọc từ `.env`, `.env.local`, `.env.development`, `.env.development.local`, `docker-compose.yml` hoặc `compose.yml` trong thư mục dự án (không đọc thư mục cha).
+2. Nếu không có, lấy giá trị `MONGODB_URI`, `MONGO_URI`, `MONGODB_URL`, `DATABASE_URL` hoặc `MONGODB_DSN` bắt đầu bằng `mongodb://` hoặc `mongodb+srv://`, đọc từ `.env`, `.env.local`, `.env.development`, `.env.development.local`, `docker-compose.yml` hoặc `compose.yml` Tìm trong thư mục dự án trước, rồi trong các thư mục con trực tiếp (chỉ một cấp, ví dụ `backend/.env`); file ở thư mục gốc thắng file ở thư mục con, và trong cùng một thư mục vẫn theo thứ tự trên. Bỏ qua thư mục ẩn, `node_modules`, `vendor`, `dist`, `build`, `.git`, `venv*` và `*.egg-info`; nếu dự án có hơn 100 thư mục con thì chỉ quét thư mục gốc. Không bao giờ đọc thư mục cha.
 
-Banner cho biết đã kết nối gì, kèm nút **Ngắt**. Ngắt thì lần mở sau sẽ không tự nối nữa, cho tới khi bạn chọn lại connection trong cây. Connection lấy từ file của dự án chỉ nằm trong bộ nhớ: không ghi vào `connections.json`, không sửa hay xoá được trong cây, và luôn **chỉ đọc (read-only)**: mọi thao tác ghi (thêm, sửa, xoá và lệnh ghi ở tab Query) đều bị chặn. Muốn ghi vào database đó, tự thêm connection bằng **Add connection** và bỏ chọn Read-only. Mọi file của dự án chỉ được đọc; file là symlink trỏ ra ngoài thư mục dự án sẽ bị bỏ qua.
+Banner cho biết đã kết nối gì, kèm nút **Ngắt**. Ngắt thì lần mở sau sẽ không tự nối nữa, cho tới khi bạn chọn lại connection trong cây. Connection lấy từ file của dự án chỉ nằm trong bộ nhớ: không ghi vào `connections.json`, không sửa hay xoá được trong cây, và luôn **chỉ đọc (read-only)**: mọi thao tác ghi (thêm, sửa, xoá và lệnh ghi ở tab Query) đều bị chặn. Muốn ghi vào database đó, tự thêm connection bằng **Add connection** và bỏ chọn Read-only. Mọi file của dự án chỉ được đọc; file hoặc thư mục con là symlink trỏ ra ngoài thư mục dự án sẽ bị bỏ qua.
+
+Nếu tên host trong URI không phân giải được trên máy này (ví dụ `mongo`, tên service của mạng Docker Compose), banner sẽ báo `Không phân giải được host …`. Hãy dùng connection cổng public, hoặc tự thêm connection bằng URI dùng được trên máy này.
 
 ## Bảo mật
 

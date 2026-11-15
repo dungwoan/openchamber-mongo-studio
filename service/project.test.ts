@@ -15,6 +15,7 @@ import {
   type ProjectMemory,
 } from './project-memory.ts';
 import { changeProjects, listProjects } from './store.ts';
+import { toHttpError } from './errors.ts';
 import { databaseOf } from './uri.ts';
 
 const GOOD = 'mongodb://app:secret@db1.local:27017/shop?authSource=admin';
@@ -282,5 +283,106 @@ describe('projects.json (chạy trong process con với HOME tạm)', () => {
 
   test('đăng ký connection phát hiện không tạo connections.json', () => {
     expect(runStoreProbe().connectionsFileCreated).toBe(false);
+  });
+});
+
+/** Tạo file kèm thư mục cha (cho phép đường dẫn con như backend/.env). */
+async function tree(name: string, files: Record<string, string>): Promise<string> {
+  const dir = path.join(sandbox, 'tree', name);
+  for (const [rel, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(dir, rel)), { recursive: true });
+    await writeFile(path.join(dir, rel), text);
+  }
+  await mkdir(dir, { recursive: true });
+  return dir;
+}
+
+describe('quét một cấp thư mục con', () => {
+  test('chỉ có backend/.env thì phát hiện được, sourceFile là đường dẫn con', async () => {
+    const dir = await tree('sub-only', { 'backend/.env': `MONGODB_URI=${GOOD}` });
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toMatchObject({ kind: 'found', sourceFile: 'backend/.env' });
+  });
+
+  test('gốc thắng con: .env ở gốc (URI đúng) được dùng dù con cũng có URI', async () => {
+    const dir = await tree('root-wins', { '.env': `MONGO_URI=${GOOD}`, 'backend/.env': `MONGO_URI=mongodb://sub@127.0.0.1:2/x` });
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toMatchObject({ kind: 'found', sourceFile: '.env', uri: GOOD });
+  });
+
+  test('gốc có URI sai thì con có URI đúng vẫn được dùng', async () => {
+    const dir = await tree('root-invalid', { '.env': 'MONGO_URI=mongodb://\n', 'backend/.env': `MONGO_URI=${GOOD}` });
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toMatchObject({ kind: 'found', sourceFile: 'backend/.env' });
+  });
+
+  test('trong cùng cấp: thứ tự thư mục theo tên, rồi thứ tự allowlist trong từng thư mục', async () => {
+    const dir = await tree('order', {
+      'api/.env': `MONGO_URI=${GOOD}`,
+      'worker/.env': `MONGO_URI=mongodb://worker@127.0.0.1:3/x`,
+    });
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toMatchObject({ kind: 'found', sourceFile: 'api/.env' });
+  });
+
+  test('bỏ qua ẩn, node_modules, vendor, dist, build, .git, venv, .venv, venv* và *.egg-info', async () => {
+    const skipped = ['.hidden', 'node_modules', 'vendor', 'dist', 'build', '.git', 'venv', '.venv', 'venv311', 'pkg.egg-info'];
+    const dir = await tree('skipped', Object.fromEntries(skipped.map((d) => [`${d}/.env`, `MONGO_URI=${GOOD}`])));
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toBeNull();
+  });
+
+  test('không quét cháu (cấp hai): a/b/.env không được phát hiện', async () => {
+    const dir = await tree('depth2', { 'a/b/.env': `MONGO_URI=${GOOD}` });
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toBeNull();
+  });
+
+  test('quá 100 thư mục con thì không quét cấp con (dừng ở gốc)', async () => {
+    const files: Record<string, string> = { 'zzz/.env': `MONGO_URI=${GOOD}` };
+    for (let i = 0; i < 100; i += 1) files[`d${String(i).padStart(3, '0')}/README.md`] = 'x';
+    const dir = await tree('too-many', files);
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toBeNull();
+  });
+
+  test('thư mục con là symlink trỏ ra ngoài không được quét', async () => {
+    const outside = path.join(sandbox, 'outside-dir');
+    await mkdir(outside, { recursive: true });
+    await writeFile(path.join(outside, '.env'), `MONGO_URI=${GOOD}`);
+    const dir = await tree('link-dir', {});
+    await symlink(outside, path.join(dir, 'linked'));
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toBeNull();
+  });
+
+  test('file .env con là symlink trỏ ra ngoài bị bỏ qua', async () => {
+    const outside = path.join(sandbox, 'outside.env2');
+    await writeFile(outside, `MONGO_URI=${GOOD}`);
+    const dir = await tree('link-file', { 'backend/.keep': '' });
+    await symlink(outside, path.join(dir, 'backend', '.env'));
+    expect(await detectProjectUri(await resolveProjectDir(dir))).toBeNull();
+  });
+});
+
+describe('lỗi host không phân giải được (DNS)', () => {
+  const dnsError = (code: string) => ({
+    name: 'MongoServerSelectionError',
+    message: `getaddrinfo ${code} mongo`,
+    cause: { name: 'DNSException', code, message: `getaddrinfo ${code} mongo` },
+  });
+
+  test('EAI_AGAIN → UNRESOLVABLE_HOST với tên host, không có URI', () => {
+    const mapped = toHttpError(dnsError('EAI_AGAIN'), 'mongodb://tester:TESTPW-7vq2x9@mongo:27017/shop?authSource=admin', 'connect');
+    expect(mapped.status).toBe(424);
+    expect(mapped.code).toBe('UNRESOLVABLE_HOST');
+    expect(mapped.message).toBe('Không phân giải được host "mongo" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.');
+  });
+
+  test('ENOTFOUND cũng được nhận diện', () => {
+    const mapped = toHttpError(dnsError('ENOTFOUND'), 'mongodb://tester:TESTPW@mongo:27017/shop', 'connect');
+    expect(mapped.code).toBe('UNRESOLVABLE_HOST');
+    expect(mapped.message).not.toContain('TESTPW');
+  });
+
+  test('host không phải DNS (cổng đóng) vẫn là UNREACHABLE', () => {
+    const refused = { name: 'MongoServerSelectionError', message: 'connect ECONNREFUSED 127.0.0.1:1' };
+    expect(toHttpError(refused, 'mongodb://127.0.0.1:1/x', 'connect').code).toBe('UNREACHABLE');
+  });
+
+  test('lỗi DNS khi truy vấn (context query) không đổi thành thông báo host', () => {
+    expect(toHttpError(dnsError('EAI_AGAIN'), 'mongodb://mongo:27017', 'query').code).not.toBe('UNRESOLVABLE_HOST');
   });
 });

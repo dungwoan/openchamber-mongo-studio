@@ -7,7 +7,7 @@
  */
 import type { ErrorBody } from '../shared/api.ts';
 import { QuerySyntaxError } from '../shared/query-parser.ts';
-import { redact } from './uri.ts';
+import { hostsOf, redact } from './uri.ts';
 
 /** Lỗi có HTTP status; message luôn an toàn để trả về page. */
 export class HttpError extends Error {
@@ -57,6 +57,30 @@ const AUTH_FAILED =
 const INVALID_URI = 'URI không hợp lệ. Dạng đúng: mongodb://user:pass@host:27017/?authSource=admin hoặc mongodb+srv://...';
 
 type DriverError = { name?: string; code?: number | string; codeName?: string; message?: string };
+
+const DNS_CODES = new Set(['EAI_AGAIN', 'ENOTFOUND']);
+
+/** Lỗi phân giải tên (DNS) nằm trong chuỗi cause của lỗi driver, ví dụ host "mongo" của Docker không có trên máy này. */
+function dnsFailure(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && typeof current === 'object' && current !== null; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && DNS_CODES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/** Thông báo khi host không phân giải được; chỉ nêu tên host (đã bỏ user, password và port), không có URI. */
+function unresolvableHost(uri: string | null): HttpError {
+  const first = hostsOf(uri ?? '').split(',')[0] ?? '';
+  const host = first.replace(/:\d+$/, '');
+  return new HttpError(
+    424,
+    'UNRESOLVABLE_HOST',
+    `Không phân giải được host "${host}" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.`,
+  );
+}
 
 /** Lỗi của driver luôn có tên bắt đầu bằng "Mongo"; lỗi JS khác không thuộc nhánh này. */
 function driverErrorOf(error: unknown): DriverError | null {
@@ -111,6 +135,7 @@ export function toHttpError(error: unknown, uri: string | null = null, context: 
   }
   const driverError = driverErrorOf(error);
   if (driverError) {
+    if (context === 'connect' && dnsFailure(error)) return unresolvableHost(uri);
     return connectionProblem(driverError, context) ?? operationProblem(driverError, uri);
   }
   return new HttpError(500, 'INTERNAL', 'Lỗi nội bộ của Mongo Studio. Xem log của OpenChamber để biết thêm.');

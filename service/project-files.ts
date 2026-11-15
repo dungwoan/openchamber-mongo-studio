@@ -4,7 +4,8 @@
  * Bảo mật: chỉ đọc đúng các tên file trong danh sách cố định; không đi lên thư mục cha;
  * file là symlink trỏ ra ngoài thư mục dự án thì bị bỏ qua. URI không bao giờ rời service.
  */
-import { readFile, realpath, stat } from 'node:fs/promises';
+import type { Dirent } from 'node:fs';
+import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { HttpError } from './errors.ts';
@@ -25,6 +26,10 @@ export const PROJECT_FILES = [
 export const URI_KEYS = ['MONGODB_URI', 'MONGO_URI', 'MONGODB_URL', 'DATABASE_URL', 'MONGODB_DSN'] as const;
 
 const MAX_FILE_BYTES = 256 * 1024;
+/** Số thư mục con tối đa được quét; vượt quá thì chỉ quét cấp gốc. */
+export const MAX_SUBDIRS = 100;
+/** Thư mục con bị loại khỏi quét (ngoài các tên ẩn, venv*, *.egg-info). */
+const SKIP_DIR_NAMES = new Set(['node_modules', 'vendor', 'dist', 'build', '.git', '__pycache__']);
 const MAX_PATH = 4096;
 const MONGO_SCHEME = /^mongodb(\+srv)?:\/\//;
 
@@ -143,8 +148,47 @@ export function pickUri(files: Array<{ name: string; text: string }>): Detection
   return invalid;
 }
 
+/** Thư mục con được quét: không ẩn, không thuộc danh sách loại trừ, không phải venv/egg-info. */
+export function isScannedSubdir(name: string): boolean {
+  if (name.startsWith('.') || SKIP_DIR_NAMES.has(name)) return false;
+  return !(name.startsWith('venv') || name.endsWith('.egg-info'));
+}
+
 /**
- * Đọc các file cấu hình của thư mục dự án và chọn chuỗi kết nối.
+ * Các thư mục con trực tiếp cần quét, theo tên. Symlink thư mục không được liệt kê (Dirent không coi là thư mục).
+ * Quá MAX_SUBDIRS thư mục thì trả về rỗng: chỉ quét cấp gốc, tránh quét repo lớn.
+ */
+async function scannedSubdirs(dir: ProjectDir): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir.real, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const names = entries
+    .filter((entry) => entry.isDirectory() && isScannedSubdir(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  if (names.length > MAX_SUBDIRS) {
+    console.warn(`mongo-studio: dự án có ${names.length} thư mục con, chỉ quét cấp gốc`);
+    return [];
+  }
+  return names;
+}
+
+/** Đọc các đường dẫn tương đối trong allowlist; bỏ qua file không đọc được. */
+async function readAll(dir: ProjectDir, relatives: string[]): Promise<Array<{ name: string; text: string }>> {
+  const files: Array<{ name: string; text: string }> = [];
+  for (const rel of relatives) {
+    const text = await readAllowed(dir, rel);
+    if (text !== null) files.push({ name: rel, text });
+  }
+  return files;
+}
+
+/**
+ * Đọc các file cấu hình của dự án: gốc trước, rồi cấp con một cấp (theo tên thư mục).
+ * URI dùng được ở cấp đầu tiên thắng; URI sai ở gốc không chặn URI đúng ở con.
  *
  * Args:
  *   dir: Thư mục dự án đã kiểm tra bằng resolveProjectDir.
@@ -153,10 +197,11 @@ export function pickUri(files: Array<{ name: string; text: string }>): Detection
  *   Kết quả tìm được, hoặc null nếu dự án không có file nào hợp lệ.
  */
 export async function detectProjectUri(dir: ProjectDir): Promise<Detection | null> {
-  const files: Array<{ name: string; text: string }> = [];
-  for (const name of PROJECT_FILES) {
-    const text = await readAllowed(dir, name);
-    if (text !== null) files.push({ name, text });
-  }
-  return pickUri(files);
+  const root = await readAll(dir, [...PROJECT_FILES]);
+  const rootResult = pickUri(root);
+  if (rootResult?.kind === 'found') return rootResult;
+  const subdirs = await scannedSubdirs(dir);
+  if (subdirs.length === 0) return rootResult;
+  const nested = await readAll(dir, subdirs.flatMap((sub) => PROJECT_FILES.map((file) => `${sub}/${file}`)));
+  return pickUri([...root, ...nested]);
 }
