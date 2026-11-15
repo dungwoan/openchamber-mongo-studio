@@ -31439,12 +31439,970 @@ async function historyAddRoute(body) {
   return { ok: true };
 }
 
+// service/handlers/diagram.ts
+import { lstat, mkdir as mkdir2, readFile as readFile4, realpath as realpath2, rename as rename2, writeFile as writeFile2 } from "node:fs/promises";
+import path5 from "node:path";
+
+// service/schema-report.ts
+var LIMITS = {
+  collections: 300,
+  fieldsPerCollection: 100,
+  fieldDepth: 3,
+  childrenPerField: 50,
+  indexesPerCollection: 50,
+  relations: 1000,
+  warnings: 50,
+  bytes: 512 * 1024,
+  name: 128,
+  type: 64,
+  path: 300,
+  keysPerIndex: 16
+};
+var URI = /mongodb(?:\+srv)?:\/\/[^\s"'<>]*/gi;
+var TOKEN = /[A-Za-z0-9+/_=-]{40,}/g;
+var CONTROL = /[\u0000-\u001f\u007f]/g;
+var RELATION_KINDS = new Set(["belongsTo", "hasMany", "hasOne", "belongsToMany", "reference"]);
+function scrubString(value, max) {
+  const cleaned = value.replace(CONTROL, "").replace(URI, "[uri]").replace(TOKEN, "[token]");
+  return cleaned.length > max ? cleaned.slice(0, max) : cleaned;
+}
+var isObj = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isStr = (value) => typeof value === "string";
+function strOf(value, max, fallback = "") {
+  return isStr(value) ? scrubString(value, max) : fallback;
+}
+function stringsOf(value, max, limit) {
+  if (!Array.isArray(value))
+    return [];
+  return value.filter(isStr).slice(0, limit).map((item) => scrubString(item, max));
+}
+function pathOf(value, warnings) {
+  if (!isStr(value) || value === "")
+    return null;
+  const unsafe = value.length > LIMITS.path || value.startsWith("/") || value.includes("\\") || value.split("/").includes("..") || /^[A-Za-z]:/.test(value);
+  if (unsafe) {
+    warnings.push("Bỏ qua một đường dẫn file không tương đối hoặc quá dài");
+    return null;
+  }
+  return scrubString(value, LIMITS.path);
+}
+function fieldOf(value, depth, warnings) {
+  if (!isObj(value))
+    return null;
+  const name = strOf(value.name, LIMITS.name);
+  if (name === "")
+    return null;
+  const rawChildren = Array.isArray(value.children) ? value.children : [];
+  const children = depth < LIMITS.fieldDepth ? rawChildren.slice(0, LIMITS.childrenPerField).map((child) => fieldOf(child, depth + 1, warnings)).filter((child) => child !== null) : [];
+  return {
+    name,
+    type: strOf(value.type, LIMITS.type, "mixed"),
+    required: value.required === true,
+    pk: value.pk === true,
+    array: value.array === true,
+    inferred: value.inferred === true,
+    children
+  };
+}
+function indexOf(value) {
+  if (!isObj(value))
+    return null;
+  const keys = stringsOf(value.keys, LIMITS.name, LIMITS.keysPerIndex);
+  return { name: strOf(value.name, LIMITS.name, keys.join("_")), keys, unique: value.unique === true, ttl: value.ttl === true };
+}
+function collectionOf(value, origin, warnings) {
+  if (!isObj(value))
+    return null;
+  const name = strOf(value.name, LIMITS.name);
+  if (name === "")
+    return null;
+  const rawFields = Array.isArray(value.fields) ? value.fields : [];
+  if (rawFields.length > LIMITS.fieldsPerCollection)
+    warnings.push(`${name}: chỉ giữ ${LIMITS.fieldsPerCollection} field đầu`);
+  const fields = rawFields.slice(0, LIMITS.fieldsPerCollection).map((f) => fieldOf(f, 1, warnings)).filter((f) => f !== null);
+  const rawIndexes = Array.isArray(value.indexes) ? value.indexes : [];
+  const indexes = rawIndexes.slice(0, LIMITS.indexesPerCollection).map(indexOf).filter((i) => i !== null);
+  return {
+    name,
+    model: isStr(value.model) ? strOf(value.model, LIMITS.name) : null,
+    file: pathOf(value.file, warnings),
+    orm: strOf(value.orm, 64, "unknown"),
+    confidence: value.confidence === "declared" ? "declared" : "inferred",
+    origin,
+    fields,
+    indexes
+  };
+}
+function relationOf(value) {
+  if (!isObj(value))
+    return null;
+  const from = strOf(value.from, LIMITS.name);
+  const to = strOf(value.to, LIMITS.name);
+  if (from === "" || to === "" || !isStr(value.kind) || !RELATION_KINDS.has(value.kind))
+    return null;
+  return {
+    from,
+    to,
+    field: isStr(value.field) ? strOf(value.field, LIMITS.name) : null,
+    kind: value.kind,
+    confidence: value.confidence === "declared" ? "declared" : "inferred"
+  };
+}
+function emptyReport(kind, warnings = []) {
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    source: { kind, detectors: [] },
+    truncated: false,
+    warnings: warnings.slice(0, LIMITS.warnings),
+    collections: [],
+    relations: []
+  };
+}
+function validateReport(input, origin = "static") {
+  if (!isObj(input) || input.version !== 1) {
+    return { report: null, warnings: ["Báo cáo không đúng định dạng v1"] };
+  }
+  const warnings = [];
+  const rawCollections = Array.isArray(input.collections) ? input.collections : [];
+  if (rawCollections.length > LIMITS.collections)
+    warnings.push(`Chỉ giữ ${LIMITS.collections} collection đầu`);
+  const collections = rawCollections.slice(0, LIMITS.collections).map((c) => collectionOf(c, origin, warnings)).filter((c) => c !== null);
+  const rawRelations = Array.isArray(input.relations) ? input.relations : [];
+  const relations = rawRelations.slice(0, LIMITS.relations).map(relationOf).filter((r) => r !== null);
+  const report = {
+    version: 1,
+    generatedAt: strOf(input.generatedAt, 40, new Date(0).toISOString()),
+    source: { kind: origin, detectors: stringsOf(isObj(input.source) ? input.source.detectors : [], 64, 20) },
+    truncated: input.truncated === true || rawCollections.length > LIMITS.collections,
+    warnings: [...warnings, ...stringsOf(input.warnings, 200, LIMITS.warnings)].slice(0, LIMITS.warnings),
+    collections,
+    relations
+  };
+  if (Buffer.byteLength(JSON.stringify(report)) > LIMITS.bytes) {
+    return { report: null, warnings: ["Báo cáo quá lớn (trên 512 KB), bỏ qua"] };
+  }
+  return { report, warnings: report.warnings };
+}
+function mergeFields(primary, secondary) {
+  const byName = new Map;
+  for (const field of primary)
+    byName.set(field.name, field);
+  for (const field of secondary) {
+    const existing = byName.get(field.name);
+    if (!existing) {
+      byName.set(field.name, field);
+      continue;
+    }
+    byName.set(field.name, {
+      ...existing,
+      type: existing.type === "mixed" ? field.type : existing.type,
+      required: existing.required || field.required,
+      pk: existing.pk || field.pk,
+      array: existing.array || field.array,
+      inferred: existing.inferred && field.inferred,
+      children: existing.children.length > 0 ? existing.children : field.children
+    });
+  }
+  return [...byName.values()].slice(0, LIMITS.fieldsPerCollection);
+}
+function mergeTwo(a, b) {
+  const aDeclared = a.confidence === "declared";
+  const bDeclared = b.confidence === "declared";
+  const primary = aDeclared || !bDeclared ? a : b;
+  const secondary = primary === a ? b : a;
+  const indexes = new Map;
+  for (const index of [...primary.indexes, ...secondary.indexes])
+    if (!indexes.has(index.name))
+      indexes.set(index.name, index);
+  return {
+    name: a.name,
+    model: primary.model ?? secondary.model,
+    file: primary.file ?? secondary.file,
+    orm: primary.orm,
+    confidence: aDeclared || bDeclared ? "declared" : "inferred",
+    origin: a.origin === "static" || b.origin === "static" ? "static" : "agent",
+    fields: mergeFields(primary.fields, secondary.fields),
+    indexes: [...indexes.values()].slice(0, LIMITS.indexesPerCollection)
+  };
+}
+function mergeCollections(list) {
+  const byName = new Map;
+  for (const item of list) {
+    const existing = byName.get(item.name);
+    byName.set(item.name, existing ? mergeTwo(existing, item) : item);
+  }
+  return [...byName.values()].slice(0, LIMITS.collections);
+}
+function mergeRelations(list) {
+  const byKey = new Map;
+  for (const relation of list) {
+    const key = `${relation.from}|${relation.to}|${relation.field ?? ""}|${relation.kind}`;
+    const existing = byKey.get(key);
+    if (!existing || relation.confidence === "declared" && existing.confidence === "inferred")
+      byKey.set(key, relation);
+  }
+  return [...byKey.values()].slice(0, LIMITS.relations);
+}
+function combineReports(base, extra) {
+  if (extra === null)
+    return base;
+  const collections = mergeCollections([...base.collections, ...extra.collections]);
+  const warnings = [...new Set([...base.warnings, ...extra.warnings])].slice(0, LIMITS.warnings);
+  return {
+    version: 1,
+    generatedAt: base.generatedAt,
+    source: { kind: "merged", detectors: [...new Set([...base.source.detectors, ...extra.source.detectors])] },
+    truncated: base.truncated || extra.truncated || collections.length >= LIMITS.collections,
+    warnings,
+    collections,
+    relations: mergeRelations([...base.relations, ...extra.relations])
+  };
+}
+
+// service/detectors/common.ts
+function emptyDraft() {
+  return { collections: [], relations: [], warnings: [] };
+}
+function fieldOf2(name, type, extra = {}) {
+  return { name, type, required: false, pk: false, array: false, inferred: false, children: [], ...extra };
+}
+function collectionOf2(partial) {
+  return {
+    model: null,
+    file: null,
+    origin: "static",
+    fields: [],
+    indexes: [],
+    ...partial
+  };
+}
+function indexOf2(keys, extra = {}) {
+  return { name: keys.join("_"), keys, unique: false, ttl: false, ...extra };
+}
+function snakeOf(name) {
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+}
+function pluralOf(name) {
+  return `${name.toLowerCase()}s`;
+}
+function lastSegment(name) {
+  return name.split(/[\\/.]/).pop() ?? name;
+}
+function closeIndex(text, open) {
+  const pairs = { "{": "}", "[": "]", "(": ")" };
+  const expected = [];
+  let quote = null;
+  for (let i = open;i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === "\\")
+        i += 1;
+      else if (ch === quote)
+        quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`")
+      quote = ch;
+    else if (pairs[ch])
+      expected.push(pairs[ch]);
+    else if (ch === "}" || ch === "]" || ch === ")") {
+      if (expected.pop() !== ch)
+        return -1;
+      if (expected.length === 0)
+        return i;
+    }
+  }
+  return -1;
+}
+function insideOf(text, open) {
+  const close = closeIndex(text, open);
+  return close === -1 ? "" : text.slice(open + 1, close);
+}
+function splitTop(text) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0;i < text.length; i += 1) {
+    const ch = text[i];
+    if (quote !== null) {
+      if (ch === "\\")
+        i += 1;
+      else if (ch === quote)
+        quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`")
+      quote = ch;
+    else if (ch === "{" || ch === "[" || ch === "(")
+      depth += 1;
+    else if (ch === "}" || ch === "]" || ch === ")")
+      depth -= 1;
+    else if (ch === "," && depth === 0) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((part) => part.trim()).filter((part) => part !== "");
+}
+function quotedIn(text) {
+  const match = /['"]([^'"]+)['"]/.exec(text);
+  return match?.[1] ?? null;
+}
+
+// service/detectors/jsonschema.ts
+var isObj2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var MAX_DEPTH2 = 6;
+var MAX_FIELDS = 100;
+function fieldsOf(schema, depth) {
+  const required = new Set(Array.isArray(schema.required) ? schema.required.filter((item) => typeof item === "string") : []);
+  const properties = isObj2(schema.properties) ? schema.properties : {};
+  return Object.entries(properties).slice(0, MAX_FIELDS).map(([name, spec]) => {
+    const node = isObj2(spec) ? spec : {};
+    const bson = node.bsonType ?? node.type;
+    const type = Array.isArray(bson) ? bson.filter((item) => typeof item === "string").join("|") : typeof bson === "string" ? bson : "mixed";
+    const children = depth < 3 && isObj2(node.properties) ? fieldsOf(node, depth + 1) : [];
+    return fieldOf2(name, type.slice(0, 64), { required: required.has(name), array: type === "array", children });
+  });
+}
+function walk(node, explicit, depth, out) {
+  if (depth > MAX_DEPTH2 || typeof node !== "object" || node === null)
+    return;
+  let name = explicit;
+  if (isObj2(node)) {
+    const declared = typeof node.collection === "string" ? node.collection : typeof node.create === "string" ? node.create : null;
+    if (declared !== null)
+      name = declared;
+    if (isObj2(node.$jsonSchema))
+      out.push({ explicit: name, schema: node.$jsonSchema });
+  }
+  for (const child of Object.values(node))
+    walk(child, name, depth + 1, out);
+}
+var jsonschemaDetector = {
+  id: "jsonschema",
+  detect(files) {
+    const draft = emptyDraft();
+    for (const file of files) {
+      if (!file.rel.endsWith(".json") || !file.text.includes("$jsonSchema"))
+        continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(file.text);
+      } catch {
+        draft.warnings.push(`jsonschema: ${file.rel} không phải JSON hợp lệ, bỏ qua`);
+        continue;
+      }
+      const found = [];
+      walk(parsed, null, 0, found);
+      const base = (file.rel.split("/").pop() ?? file.rel).replace(/\.json$/, "");
+      for (const item of found) {
+        draft.collections.push(collectionOf2({
+          name: item.explicit ?? base,
+          file: file.rel,
+          orm: "jsonschema",
+          confidence: item.explicit ? "declared" : "inferred",
+          fields: fieldsOf(item.schema, 1)
+        }));
+      }
+    }
+    return draft;
+  }
+};
+
+// service/detectors/laravel.ts
+var CLASS = /^\s*(abstract\s+)?(?:final\s+)?class\s+(\w+)\s+extends\s+\\?([\w\\]+)/m;
+var TABLE = /\$table\s*=\s*['"]([^'"]+)['"]/;
+var RELATION_FN = /function\s+(\w+)\s*\([^)]*\)\s*(?::\s*[\w\\?]+\s*)?\{/g;
+var RELATION_CALL = /\$this->(belongsTo|hasMany|hasOne|belongsToMany)\(\s*\\?([\w\\]+)::class\s*(?:,\s*['"]([^'"]+)['"])?/;
+var KIND = {
+  belongsTo: "belongsTo",
+  hasMany: "hasMany",
+  hasOne: "hasOne",
+  belongsToMany: "belongsToMany"
+};
+function arrayBody(body, key) {
+  const match = key.exec(body);
+  if (!match)
+    return null;
+  return insideOf(body, match.index + match[0].length - 1);
+}
+function fieldsOf2(body, base) {
+  const fields = new Map;
+  if (base === "BaseModel") {
+    fields.set("_id", fieldOf2("_id", "ObjectId", { pk: true }));
+    fields.set("createdAt", fieldOf2("createdAt", "number"));
+    fields.set("updatedAt", fieldOf2("updatedAt", "number"));
+  }
+  for (const name of [...(arrayBody(body, /\$fillable\s*=\s*\[/) ?? "").matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1])) {
+    if (!fields.has(name))
+      fields.set(name, fieldOf2(name, "mixed", { inferred: true }));
+  }
+  for (const cast of (arrayBody(body, /\$casts\s*=\s*\[/) ?? "").matchAll(/['"]([^'"]+)['"]\s*=>\s*['"]?([\w:]+)['"]?/g)) {
+    fields.set(cast[1], fieldOf2(cast[1], cast[2]));
+  }
+  return [...fields.values()];
+}
+function relationsOf(body, from) {
+  const pending = [];
+  for (const fn of body.matchAll(RELATION_FN)) {
+    const inner = insideOf(body, (fn.index ?? 0) + fn[0].length - 1);
+    const call = RELATION_CALL.exec(inner);
+    if (!call)
+      continue;
+    const kind = KIND[call[1]];
+    const explicit = call[3] ?? null;
+    const field = explicit ?? (kind === "belongsTo" ? `${fn[1]}_id` : null);
+    pending.push({ from, target: lastSegment(call[2]), kind, field });
+  }
+  return pending;
+}
+function modelsOf(file, draft, classNames, pending) {
+  const match = CLASS.exec(file.text);
+  if (!match || match[1] !== undefined || !lastSegment(match[3]).endsWith("Model"))
+    return;
+  const className = match[2];
+  const base = lastSegment(match[3]);
+  const openBrace = file.text.indexOf("{", match.index + match[0].length);
+  const body = openBrace === -1 ? "" : insideOf(file.text, openBrace);
+  const table = TABLE.exec(body)?.[1] ?? null;
+  const name = table ?? snakeOf(className);
+  classNames.set(className, name);
+  if (/function\s+forTable\b/.test(body)) {
+    draft.warnings.push(`laravel-mongodb: ${className} đổi collection lúc chạy (forTable), chỉ ghi bảng gốc ${name}`);
+  }
+  draft.collections.push(collectionOf2({
+    name,
+    model: className,
+    file: file.rel,
+    orm: "laravel-mongodb",
+    confidence: table ? "declared" : "inferred",
+    fields: fieldsOf2(body, base)
+  }));
+  pending.push(...relationsOf(body, name));
+}
+function indexesOf(file, draft) {
+  const collection = quotedIn(/getCollection\(\s*['"][^'"]+['"]\s*\)/.exec(file.text)?.[0] ?? "");
+  if (collection === null)
+    return;
+  const indexes = [...file.text.matchAll(/\$this->create\(\s*\$\w+\s*,\s*\[([^\]]*)\]\s*(?:,\s*\[([^\]]*)\])?/g)].map((call) => {
+    const keys = [...(call[1] ?? "").matchAll(/['"]([^'"]+)['"]\s*=>/g)].map((m) => m[1]);
+    const options = call[2] ?? "";
+    const name = /['"]name['"]\s*=>\s*['"]([^'"]+)['"]/.exec(options)?.[1];
+    return indexOf2(keys, {
+      name: name ?? keys.join("_"),
+      unique: /['"]unique['"]\s*=>\s*true/.test(options),
+      ttl: /expireAfterSeconds/.test(options)
+    });
+  });
+  if (indexes.length === 0)
+    return;
+  draft.collections.push(collectionOf2({ name: collection, file: file.rel, orm: "laravel-mongodb", confidence: "declared", indexes }));
+}
+var laravelDetector = {
+  id: "laravel-mongodb",
+  detect(files) {
+    const draft = emptyDraft();
+    const classNames = new Map;
+    const pending = [];
+    for (const file of files) {
+      if (!file.rel.endsWith(".php"))
+        continue;
+      modelsOf(file, draft, classNames, pending);
+      indexesOf(file, draft);
+    }
+    for (const item of pending) {
+      const to = classNames.get(item.target) ?? snakeOf(item.target);
+      draft.relations.push({ from: item.from, to, field: item.field, kind: item.kind, confidence: "declared" });
+    }
+    return draft;
+  }
+};
+
+// service/detectors/mongoose.ts
+var SCHEMA = /(?:const|let|var)\s+(\w+)\s*=\s*new\s+(?:mongoose\.)?Schema\s*\(/g;
+var MODEL = /(?:mongoose\.)?model\s*\(\s*['"](\w+)['"]\s*,\s*(\w+)/g;
+function typeOf2(value) {
+  const object = value.startsWith("{") ? insideOf(value, 0) : null;
+  if (object !== null) {
+    const declared = /\btype\s*:\s*([\w.]+)/.exec(object)?.[1];
+    return declared === undefined ? "mixed" : lastSegment(declared);
+  }
+  return lastSegment(value.replace(/[\[\]{}]/g, "").trim()) || "mixed";
+}
+function fieldFrom(key, raw, info) {
+  let value = raw;
+  let array = false;
+  if (value.startsWith("[")) {
+    array = true;
+    value = splitTop(insideOf(value, 0))[0] ?? "Mixed";
+  }
+  const object = value.startsWith("{") ? insideOf(value, 0) : "";
+  const ref = quotedIn(/\bref\s*:\s*['"][^'"]+['"]/.exec(object)?.[0] ?? "");
+  if (ref !== null)
+    info.refs.push({ field: key, model: ref });
+  info.fields.push(fieldOf2(key, typeOf2(value), {
+    array,
+    required: /\brequired\s*:\s*true/.test(object),
+    pk: key === "_id"
+  }));
+}
+function schemaOf(text, match) {
+  const open = match.index + match[0].length - 1;
+  const args = splitTop(insideOf(text, open));
+  const info = { fields: [], indexes: [], collection: null, refs: [] };
+  const body = args[0]?.startsWith("{") ? insideOf(args[0], 0) : "";
+  for (const entry of splitTop(body)) {
+    const colon = entry.indexOf(":");
+    if (colon === -1)
+      continue;
+    const key = entry.slice(0, colon).trim().replace(/['"]/g, "");
+    if (key !== "")
+      fieldFrom(key, entry.slice(colon + 1).trim(), info);
+  }
+  const options = args[1] ?? "";
+  info.collection = quotedIn(/\bcollection\s*:\s*['"][^'"]+['"]/.exec(options)?.[0] ?? "");
+  return info;
+}
+function indexesIn(text, variable) {
+  const indexes = [];
+  const calls = new RegExp(`${variable}\\.index\\s*\\(`, "g");
+  for (const call of text.matchAll(calls)) {
+    const open = (call.index ?? 0) + call[0].length - 1;
+    const close = closeIndex(text, open);
+    if (close === -1)
+      continue;
+    const inner = text.slice(open + 1, close);
+    const keyPart = splitTop(inner)[0] ?? "";
+    const keys = [...keyPart.matchAll(/['"]?([\w.]+)['"]?\s*:\s*-?1/g)].map((m) => m[1]);
+    if (keys.length > 0)
+      indexes.push(indexOf2(keys, { unique: /\bunique\s*:\s*true/.test(inner) }));
+  }
+  return indexes;
+}
+var mongooseDetector = {
+  id: "mongoose",
+  detect(files) {
+    const draft = emptyDraft();
+    const models = new Map;
+    const pending = [];
+    for (const file of files) {
+      if (!/\.(js|ts|mjs)$/.test(file.rel) || !/mongoose/.test(file.text))
+        continue;
+      const schemas = new Map;
+      for (const match of file.text.matchAll(SCHEMA)) {
+        schemas.set(match[1], schemaOf(file.text, match));
+      }
+      for (const match of file.text.matchAll(MODEL)) {
+        const modelName = match[1];
+        const variable = match[2];
+        const info = schemas.get(variable);
+        if (!info)
+          continue;
+        const name = info.collection ?? pluralOf(modelName);
+        models.set(modelName, name);
+        draft.collections.push(collectionOf2({
+          name,
+          model: modelName,
+          file: file.rel,
+          orm: "mongoose",
+          confidence: info.collection ? "declared" : "inferred",
+          fields: info.fields,
+          indexes: indexesIn(file.text, variable)
+        }));
+        for (const ref of info.refs)
+          pending.push({ from: name, field: ref.field, model: ref.model });
+      }
+    }
+    for (const item of pending) {
+      const to = models.get(item.model) ?? pluralOf(item.model);
+      draft.relations.push({ from: item.from, to, field: item.field, kind: "reference", confidence: "declared" });
+    }
+    return draft;
+  }
+};
+
+// service/detectors/prisma.ts
+var SCALARS = new Set(["String", "Int", "BigInt", "Float", "Decimal", "Boolean", "DateTime", "Json", "Bytes"]);
+var FIELD = /^(\w+)\s+(\w+)(\[\])?(\?)?(.*)$/;
+function listOf(text) {
+  return text.split(",").map((item) => item.trim().replace(/^['"]|['"]$/g, "")).filter((item) => item !== "");
+}
+function modelOf(name, body) {
+  const map = /@@map\(\s*"([^"]+)"/.exec(body)?.[1];
+  const model = { name, collection: map ?? name, fields: [], indexes: [], relations: [] };
+  for (const raw of body.split(`
+`).map((line) => line.trim())) {
+    if (raw === "" || raw.startsWith("//"))
+      continue;
+    if (raw.startsWith("@@")) {
+      const index = /@@(index|unique)\(\s*\[([^\]]*)\]/.exec(raw);
+      if (index)
+        model.indexes.push(indexOf2(listOf(index[2] ?? ""), { unique: index[1] === "unique" }));
+      continue;
+    }
+    const field = FIELD.exec(raw);
+    if (!field)
+      continue;
+    const [, fieldName = "", type = "unknown", array, optional, rest = ""] = field;
+    const pk = /@id\b/.test(rest);
+    if (SCALARS.has(type)) {
+      model.fields.push(fieldOf2(fieldName, type, { array: array !== undefined, required: optional === undefined, pk }));
+      continue;
+    }
+    const keys = /fields\s*:\s*\[([^\]]*)\]/.exec(rest)?.[1];
+    model.fields.push(fieldOf2(fieldName, type, { array: array !== undefined, required: optional === undefined }));
+    if (keys !== undefined) {
+      model.relations.push({ target: type, field: listOf(keys)[0] ?? null, kind: "belongsTo" });
+    } else {
+      model.relations.push({ target: type, field: fieldName, kind: array !== undefined ? "hasMany" : "hasOne" });
+    }
+  }
+  return model;
+}
+var prismaDetector = {
+  id: "prisma",
+  detect(files) {
+    const draft = emptyDraft();
+    const models = [];
+    for (const file of files) {
+      if (!file.rel.endsWith(".prisma"))
+        continue;
+      const datasource = /datasource\s+\w+\s*\{/.exec(file.text);
+      const provider = datasource ? /provider\s*=\s*"(\w+)"/.exec(insideOf(file.text, datasource.index + datasource[0].length - 1))?.[1] : undefined;
+      if (provider !== "mongodb") {
+        draft.warnings.push(`prisma: chỉ hỗ trợ provider "mongodb", bỏ qua ${file.rel}`);
+        continue;
+      }
+      for (const match of file.text.matchAll(/model\s+(\w+)\s*\{/g)) {
+        const body = insideOf(file.text, (match.index ?? 0) + match[0].length - 1);
+        models.push(modelOf(match[1], body));
+      }
+    }
+    const collectionOfModel = new Map(models.map((m) => [m.name, m.collection]));
+    for (const model of models) {
+      draft.collections.push(collectionOf2({
+        name: model.collection,
+        model: model.name,
+        orm: "prisma",
+        confidence: "declared",
+        fields: model.fields,
+        indexes: model.indexes
+      }));
+      for (const relation of model.relations) {
+        draft.relations.push({
+          from: model.collection,
+          to: collectionOfModel.get(relation.target) ?? relation.target,
+          field: relation.field,
+          kind: relation.kind,
+          confidence: "declared"
+        });
+      }
+    }
+    return draft;
+  }
+};
+
+// service/detectors/typeorm.ts
+var ENTITY = /@Entity\(\s*(?:['"]([^'"]+)['"])?\s*\)\s*(?:export\s+)?class\s+(\w+)/g;
+var DECORATOR = /^@(\w+)\s*\((.*)\)\s*$/;
+var PROPERTY = /^(\w+)\s*[?!]?\s*:\s*([^;=]+)/;
+var RELATIONS = {
+  ManyToOne: "belongsTo",
+  OneToOne: "hasOne",
+  OneToMany: "hasMany",
+  ManyToMany: "belongsToMany"
+};
+var COLUMNS = new Set(["Column", "CreateDateColumn", "UpdateDateColumn"]);
+var PKS = new Set(["ObjectIdColumn", "PrimaryColumn", "PrimaryGeneratedColumn", "ObjectId"]);
+function fieldsOf3(body) {
+  const fields = [];
+  const relations = [];
+  const lines = body.split(`
+`).map((line) => line.trim());
+  lines.forEach((line, index) => {
+    const decorator = DECORATOR.exec(line);
+    if (!decorator)
+      return;
+    const next = lines.slice(index + 1).find((candidate) => !candidate.startsWith("@") && candidate !== "") ?? "";
+    const property = PROPERTY.exec(next);
+    if (!property)
+      return;
+    const [, name = "", tsType = "mixed"] = property;
+    const kind = decorator[1];
+    const args = decorator[2] ?? "";
+    const type = tsType.trim();
+    if (PKS.has(kind)) {
+      fields.push(fieldOf2(name, kind === "ObjectIdColumn" ? "ObjectId" : type, { pk: true }));
+    } else if (COLUMNS.has(kind)) {
+      const declared = /type\s*:\s*['"](\w+)['"]/.exec(args)?.[1];
+      fields.push(fieldOf2(name, declared ?? type, { required: !/nullable\s*:\s*true/.test(args) }));
+    } else if (RELATIONS[kind]) {
+      const target = /=>\s*(\w+)/.exec(args)?.[1] ?? type;
+      fields.push(fieldOf2(name, target));
+      relations.push({ field: name, target, kind: RELATIONS[kind] });
+    }
+  });
+  return { fields, relations };
+}
+var typeormDetector = {
+  id: "typeorm",
+  detect(files) {
+    const draft = emptyDraft();
+    const classNames = new Map;
+    const pending = [];
+    for (const file of files) {
+      if (!/from\s+['"]typeorm['"]/.test(file.text))
+        continue;
+      for (const match of file.text.matchAll(ENTITY)) {
+        const table = match[1] ?? null;
+        const className = match[2];
+        const open = file.text.indexOf("{", (match.index ?? 0) + match[0].length);
+        const body = open === -1 ? "" : insideOf(file.text, open);
+        const name = table ?? snakeOf(className);
+        classNames.set(className, name);
+        const { fields, relations } = fieldsOf3(body);
+        draft.collections.push(collectionOf2({
+          name,
+          model: className,
+          file: file.rel,
+          orm: "typeorm",
+          confidence: table ? "declared" : "inferred",
+          fields
+        }));
+        for (const relation of relations)
+          pending.push({ from: name, ...relation });
+      }
+    }
+    for (const item of pending) {
+      draft.relations.push({
+        from: item.from,
+        to: classNames.get(item.target) ?? snakeOf(item.target),
+        field: item.field,
+        kind: item.kind,
+        confidence: "declared"
+      });
+    }
+    return draft;
+  }
+};
+
+// service/detectors/index.ts
+var DETECTORS = [laravelDetector, mongooseDetector, typeormDetector, prismaDetector, jsonschemaDetector];
+var STEM = /^(.+?)(?:_id|Id)$/;
+function inferRelations(collections, declared) {
+  const byName = new Map(collections.map((c) => [c.name.toLowerCase(), c.name]));
+  const byModel = new Map(collections.flatMap((c) => c.model ? [[c.model.toLowerCase(), c.name]] : []));
+  const declaredKeys = new Set(declared.map((r) => `${r.from}|${r.field ?? ""}`));
+  const inferred = [];
+  for (const collection of collections) {
+    for (const field of collection.fields) {
+      const match = STEM.exec(field.name);
+      if (!match)
+        continue;
+      const stem = (match[1] ?? "").toLowerCase();
+      const target = byName.get(stem) ?? byName.get(`${stem}s`) ?? byName.get(`${stem}es`) ?? byModel.get(stem);
+      if (!target || target === collection.name || declaredKeys.has(`${collection.name}|${field.name}`))
+        continue;
+      inferred.push({ from: collection.name, to: target, field: field.name, kind: "reference", confidence: "inferred" });
+    }
+  }
+  return inferred;
+}
+function analyze(files, options = {}) {
+  const results = DETECTORS.map((detector) => ({ id: detector.id, draft: detector.detect(files) }));
+  const used = results.filter((r) => r.draft.collections.length + r.draft.relations.length > 0).map((r) => r.id);
+  const collections = mergeCollections(results.flatMap((r) => r.draft.collections));
+  const declared = mergeRelations(results.flatMap((r) => r.draft.relations));
+  const inferred = inferRelations(collections, declared);
+  const warnings = [...options.warnings ?? [], ...results.flatMap((r) => r.draft.warnings)];
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    source: { kind: "static", detectors: used },
+    truncated: (options.truncated ?? false) || collections.length >= LIMITS.collections,
+    warnings: warnings.slice(0, LIMITS.warnings),
+    collections,
+    relations: mergeRelations([...declared, ...inferred])
+  };
+}
+
+// service/schema-scan.ts
+import { readdir as readdir2, readFile as readFile3, stat as stat2 } from "node:fs/promises";
+import path4 from "node:path";
+var MAX_SCAN_FILES = 2000;
+var MAX_SCAN_DEPTH = 6;
+var SCAN_EXTENSIONS = [".ts", ".js", ".mjs", ".php", ".prisma", ".json"];
+async function collectFiles(dir, limits = {}) {
+  const maxFiles = limits.maxFiles ?? MAX_SCAN_FILES;
+  const maxDepth = limits.maxDepth ?? MAX_SCAN_DEPTH;
+  const files = [];
+  const queue = [{ rel: "", depth: 0 }];
+  let truncated = false;
+  let oversized = 0;
+  while (queue.length > 0 && !truncated) {
+    const current = queue.shift();
+    const entries = await listEntries(path4.join(dir.real, current.rel));
+    for (const entry of entries) {
+      if (entry.isSymbolicLink())
+        continue;
+      const rel = current.rel === "" ? entry.name : `${current.rel}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (isScannedSubdir(entry.name) && current.depth + 1 <= maxDepth)
+          queue.push({ rel, depth: current.depth + 1 });
+        continue;
+      }
+      if (!entry.isFile() || !SCAN_EXTENSIONS.some((ext) => entry.name.endsWith(ext)))
+        continue;
+      if (files.length >= maxFiles) {
+        truncated = true;
+        break;
+      }
+      const text = await readSmall(path4.join(dir.real, rel));
+      if (text === null)
+        oversized += 1;
+      else
+        files.push({ rel, text });
+    }
+  }
+  files.sort((a, b) => a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0);
+  const warnings = oversized > 0 ? [`${oversized} file quá lớn (trên 256 KB) bị bỏ qua`] : [];
+  return { files, truncated, warnings };
+}
+async function listEntries(absolute) {
+  try {
+    const entries = await readdir2(absolute, { withFileTypes: true });
+    return entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  } catch {
+    return [];
+  }
+}
+async function readSmall(absolute) {
+  try {
+    const info = await stat2(absolute);
+    if (!info.isFile() || info.size > MAX_FILE_BYTES)
+      return null;
+    return await readFile3(absolute, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+// service/handlers/diagram.ts
+var REPORT_DIR = [".openchamber", "mongo-studio"];
+var AGENT_REPORT_FILE = "schema-report.json";
+var SCAN_REPORT_FILE = "schema-scan.json";
+var scans = new Map;
+async function scanStatic(dir) {
+  const scan = await collectFiles(dir);
+  const raw = analyze(scan.files, { truncated: scan.truncated, warnings: scan.warnings });
+  const { report, warnings } = validateReport(raw, "static");
+  const result = report ?? emptyReport("static", warnings);
+  scans.set(dir.key, result);
+  return result;
+}
+async function reportFolder(dir, create) {
+  let current = dir.real;
+  for (const part of REPORT_DIR) {
+    current = path5.join(current, part);
+    let info;
+    try {
+      info = await lstat(current);
+    } catch {
+      if (!create)
+        return null;
+      await mkdir2(current, { mode: 493 });
+      info = await lstat(current);
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new HttpError(400, "UNSAFE_PATH", "Thư mục .openchamber/mongo-studio trong dự án không an toàn (symlink hoặc không phải thư mục).");
+    }
+  }
+  return current;
+}
+async function writeReport(dir, fileName, text) {
+  const folder = await reportFolder(dir, true);
+  const target = path5.join(folder, fileName);
+  const existing = await lstat(target).catch(() => null);
+  if (existing?.isSymbolicLink()) {
+    throw new HttpError(400, "UNSAFE_PATH", `${fileName} là symlink, không ghi đè.`);
+  }
+  const temp = `${target}.${process.pid}.tmp`;
+  await writeFile2(temp, text, { mode: 420 });
+  await rename2(temp, target);
+  return [...REPORT_DIR, fileName].join("/");
+}
+async function readAgentReport(dir) {
+  try {
+    const folder = await reportFolder(dir, false);
+    if (folder === null)
+      return { report: null, warnings: [] };
+    const file = path5.join(folder, AGENT_REPORT_FILE);
+    const info = await lstat(file).catch(() => null);
+    if (info === null)
+      return { report: null, warnings: [] };
+    if (info.isSymbolicLink() || !info.isFile())
+      return { report: null, warnings: ["schema-report.json không phải file thường, bỏ qua"] };
+    if (info.size > LIMITS.bytes)
+      return { report: null, warnings: ["schema-report.json quá lớn, bỏ qua"] };
+    const real = await realpath2(file);
+    if (!isInside(dir.real, real))
+      return { report: null, warnings: ["schema-report.json nằm ngoài dự án, bỏ qua"] };
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile4(real, "utf8"));
+    } catch {
+      return { report: null, warnings: ["schema-report.json không phải JSON hợp lệ, bỏ qua"] };
+    }
+    return validateReport(parsed, "agent");
+  } catch (error) {
+    if (error instanceof HttpError)
+      return { report: null, warnings: [error.message] };
+    throw error;
+  }
+}
+async function gitignoreState(dir) {
+  const text = await readFile4(path5.join(dir.real, ".gitignore"), "utf8").catch(() => null);
+  if (text === null)
+    return "absent";
+  const ignored = text.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    return trimmed === ".openchamber/" || trimmed === ".openchamber";
+  });
+  return ignored ? "present" : "missing";
+}
+async function scanRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const report = await scanStatic(dir);
+  const write = optionalBoolean(body, "write", false);
+  const written = write ? await writeReport(dir, SCAN_REPORT_FILE, `${JSON.stringify(report, null, 2)}
+`) : null;
+  return { report, written, gitignore: await gitignoreState(dir) };
+}
+async function getRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  const base = scans.get(dir.key) ?? await scanStatic(dir);
+  const agent = await readAgentReport(dir);
+  const combined = combineReports(base, agent.report);
+  const warnings = [...new Set([...combined.warnings, ...agent.warnings])].slice(0, LIMITS.warnings);
+  return { report: { ...combined, warnings }, hasAgentReport: agent.report !== null };
+}
+async function agentReportRoute(body) {
+  const dir = await resolveProjectDir(body.directory);
+  return readAgentReport(dir);
+}
+
 // service/routes.ts
 var ROUTES = {
   "/connections/list": listRoute,
   "/project/open": openRoute,
   "/project/disconnect": disconnectRoute,
   "/project/select": selectRoute,
+  "/diagram/scan": scanRoute,
+  "/diagram/get": getRoute,
+  "/diagram/agent-report": agentReportRoute,
   "/connections/save": saveRoute,
   "/connections/delete": deleteRoute,
   "/connections/disconnect": disconnectRoute2,

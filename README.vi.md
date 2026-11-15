@@ -50,6 +50,15 @@ Banner cho biết đã kết nối gì, kèm nút **Ngắt**. Ngắt thì lần 
 
 Nếu tên host trong URI không phân giải được trên máy này (ví dụ `mongo`, tên service của mạng Docker Compose), banner sẽ báo `Không phân giải được host …`. Hãy dùng connection cổng public, hoặc tự thêm connection bằng URI dùng được trên máy này.
 
+## Sơ đồ database
+
+Nút **Diagram** mở một tab vẽ các collection và quan hệ của dự án đang mở. Mongo Studio chỉ đọc file mã nguồn (`.ts`, `.js`, `.mjs`, `.php`, `.prisma`, `.json`; tối đa 6 cấp thư mục, 2000 file, mỗi file 256 KB). Bỏ qua `node_modules`, `vendor`, `dist`, `build`, `.git`, thư mục ẩn và `venv*`. Bộ nhận diện: Laravel (laravel-mongodb), Mongoose, TypeORM, Prisma (chỉ provider MongoDB) và file `$jsonSchema`.
+
+- Nét liền và thẻ liền là khai báo trong code. Nét đứt và thẻ đứt là suy đoán, ví dụ field `customer_id` trỏ tới `customers`. Quan hệ suy đoán bị ẩn cho tới khi bạn bật **Cạnh suy đoán**.
+- **Ghi báo cáo vào dự án** ghi `.openchamber/mongo-studio/schema-scan.json` vào dự án. Mongo Studio không bao giờ sửa `.gitignore`; bạn tự thêm dòng `.openchamber/`.
+- Khi không tìm thấy model nào, **Nhờ agent bổ sung** đặt một lời nhắc vào ô nhập của chat, thay nội dung hiện có (không gửi). Lời nhắc yêu cầu agent ghi `.openchamber/mongo-studio/schema-report.json`; Mongo Studio kiểm tra file đó rồi gộp vào sơ đồ. Tính năng này dùng capability `prompt`, cần được duyệt khi cài.
+- Khi có hơn 80 collection, dùng ô tìm kiếm hoặc chọn một collection trung tâm và số bước lân cận.
+
 ## Bảo mật
 
 - URI (kèm mật khẩu) được lưu trong `~/.openchamber-mongo-studio/connections.json`, quyền `0600`, thư mục `0700`. Đây là plain text: ai đọc được file này (cùng tài khoản hệ điều hành) đều thấy mật khẩu.

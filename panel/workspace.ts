@@ -6,6 +6,7 @@ import { mountButton, mountEmpty, mountTabs } from '@openchamber/sdk/ui';
 import type { ConnectionView } from '../shared/api.ts';
 import { type Api, type GuestHost } from './api.ts';
 import { createCollectionView } from './collection-view.ts';
+import { createDiagramView } from './diagram-view.ts';
 import { openConnectionDialog } from './connection-dialog.ts';
 import { type Ctx, messageOf, type ToastKind } from './context.ts';
 import { confirmDialog } from './dialogs.ts';
@@ -61,7 +62,8 @@ export function startWorkspace(options: StartOptions): void {
   });
   const addSlot = slot('ms-slot ms-slot-inline');
   const queryBtnSlot = slot('ms-slot ms-slot-inline');
-  append(topbar, treeToggle, h('span', 'ms-brand', 'Mongo Studio'), h('span', 'ms-spacer'), addSlot, queryBtnSlot);
+  const diagramBtnSlot = slot('ms-slot ms-slot-inline');
+  append(topbar, treeToggle, h('span', 'ms-brand', 'Mongo Studio'), h('span', 'ms-spacer'), addSlot, diagramBtnSlot, queryBtnSlot);
 
   const projectSlot = slot('ms-slot ms-slot-banner');
   projectSlot.hidden = true;
@@ -174,6 +176,23 @@ export function startWorkspace(options: StartOptions): void {
     addTab({ key: null, connectionId: seed?.connectionId ?? null, label: `Query ${number}`, element: view.element, dispose: view.dispose });
   }
 
+  /** Tab Sơ đồ của thư mục dự án đang mở: một tab cho mỗi thư mục. */
+  function openDiagram(): void {
+    const directory = tree.directory;
+    if (directory === null) {
+      toast('info', 'Mở Mongo Studio trong một dự án để xem sơ đồ database.');
+      return;
+    }
+    const key = `diagram:${directory}`;
+    const existing = tabs.find((tab) => tab.key === key);
+    if (existing) {
+      activate(existing.id);
+      return;
+    }
+    const view = createDiagramView(ctx, directory);
+    addTab({ key, connectionId: null, label: 'Diagram', element: view.element, dispose: view.dispose });
+  }
+
   function closeTabsOf(connectionId: string): void {
     for (const tab of tabs.filter((item) => item.key !== null && item.connectionId === connectionId)) {
       closeTab(tab.id);
@@ -239,6 +258,7 @@ export function startWorkspace(options: StartOptions): void {
   };
 
   mountButton(addSlot, { label: 'Add connection', size: 'sm', onClick: addConnection });
+  mountButton(diagramBtnSlot, { label: 'Diagram', variant: 'outline', size: 'sm', onClick: openDiagram });
   mountButton(queryBtnSlot, { label: '+ Query', variant: 'outline', size: 'sm', onClick: () => openQuery() });
   treeToggle.setAttribute('aria-label', 'Hiện hoặc ẩn danh sách connection');
 

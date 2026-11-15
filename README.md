@@ -50,6 +50,15 @@ A banner says what was connected, with a **Disconnect** button. Disconnecting st
 
 If the URI's host cannot be resolved from this machine (for example `mongo`, the service name of a Docker Compose network), the banner says so: `Không phân giải được host …`. Use a connection on a public port, or add a connection manually with a URI that works here.
 
+## Database diagram
+
+The **Diagram** button opens a tab that draws the collections and relations of the open project. Mongo Studio reads source files only (`.ts`, `.js`, `.mjs`, `.php`, `.prisma`, `.json`; up to 6 folder levels, 2000 files, 256 KB each). `node_modules`, `vendor`, `dist`, `build`, `.git`, hidden folders and `venv*` are skipped. Detectors: Laravel (laravel-mongodb), Mongoose, TypeORM, Prisma (MongoDB provider only) and `$jsonSchema` files.
+
+- Solid lines and solid cards come from declarations in code. Dashed lines and dashed cards are inferred, for example a `customer_id` field pointing to `customers`. Inferred relations are hidden until you turn on **Cạnh suy đoán**.
+- **Ghi báo cáo vào dự án** writes `.openchamber/mongo-studio/schema-scan.json` into the project. Mongo Studio never edits `.gitignore`; add `.openchamber/` yourself.
+- When no models are found, **Nhờ agent bổ sung** puts a prompt into the chat composer, replacing its current text (it is not sent). The prompt asks the agent to write `.openchamber/mongo-studio/schema-report.json`, which Mongo Studio validates and merges into the diagram. This uses the `prompt` capability, approved at install.
+- With more than 80 collections, use the search box or pick a centre collection and a number of steps.
+
 ## Security
 
 - The URI (including the password) is stored in `~/.openchamber-mongo-studio/connections.json`, mode `0600`, inside a directory with mode `0700`. It is plain text: anyone who can read this file (same OS account) can see the passwords.
