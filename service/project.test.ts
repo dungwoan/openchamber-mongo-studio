@@ -365,16 +365,16 @@ describe('lỗi host không phân giải được (DNS)', () => {
   });
 
   test('EAI_AGAIN → UNRESOLVABLE_HOST với tên host, không có URI', () => {
-    const mapped = toHttpError(dnsError('EAI_AGAIN'), 'mongodb://tester:TESTPW-7vq2x9@mongo:27017/shop?authSource=admin', 'connect');
+    const mapped = toHttpError(dnsError('EAI_AGAIN'), 'mongodb://user:pass@mongo:27017/shop?authSource=admin', 'connect');
     expect(mapped.status).toBe(424);
     expect(mapped.code).toBe('UNRESOLVABLE_HOST');
     expect(mapped.message).toBe('Không phân giải được host "mongo" từ máy này (có thể là tên nội bộ Docker). Dùng connection cổng public nếu có, hoặc thêm connection thủ công với URI dùng được.');
   });
 
   test('ENOTFOUND cũng được nhận diện', () => {
-    const mapped = toHttpError(dnsError('ENOTFOUND'), 'mongodb://tester:TESTPW@mongo:27017/shop', 'connect');
+    const mapped = toHttpError(dnsError('ENOTFOUND'), 'mongodb://user:pass@mongo:27017/shop', 'connect');
     expect(mapped.code).toBe('UNRESOLVABLE_HOST');
-    expect(mapped.message).not.toContain('TESTPW');
+    expect(mapped.message).not.toContain('user:pass');
   });
 
   test('host không phải DNS (cổng đóng) vẫn là UNREACHABLE', () => {

@@ -10,7 +10,7 @@ import type { SchemaReport } from '../shared/api.ts';
 
 const find = (report: SchemaReport, name: string) => report.collections.find((c) => c.name === name);
 
-describe('detector laravel-mongodb (fixture mô phỏng BaseModel/Customer/AuditIndexes của worldfone4f)', () => {
+describe('detector laravel-mongodb (fixture mô phỏng BaseModel/Customer/AuditIndexes của laravel-mongodb sample app)', () => {
   const files = [
     { rel: 'app/Models/BaseModel.php', text: `<?php\nnamespace App\\Models;\nuse MongoDB\\Laravel\\Eloquent\\Model;\nabstract class BaseModel extends Model\n{\n    protected $keyType = 'string';\n}\n` },
     { rel: 'app/Models/Customer.php', text: `<?php\nclass Customer extends BaseModel\n{\n    protected $table = 'customers';\n    protected $fillable = [\n        'customer_name',\n        'cif',\n        'company_id',\n    ];\n    protected $hidden = ['id_no'];\n}\n` },
